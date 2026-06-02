@@ -10,6 +10,12 @@ import android.util.Base64
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -42,6 +48,7 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.EditNote
 import androidx.compose.material.icons.filled.KeyboardArrowDown
@@ -61,8 +68,6 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -381,96 +386,88 @@ private fun ModelSelector(
     onSelect: (String) -> Unit,
     onManage: () -> Unit
 ) {
-    var showSheet by remember { mutableStateOf(false) }
-    val sheetState = rememberModalBottomSheetState()
-    val scope = rememberCoroutineScope()
+    var open by remember { mutableStateOf(false) }
     fun prov(m: ChatModel) = m.provider.ifBlank { "其它" }
-    fun close(after: () -> Unit = {}) {
-        scope.launch { sheetState.hide(); showSheet = false; after() }
-    }
 
-    // Compact pill: model name + a small chevron (no big icon/padding).
-    Surface(
-        color = MaterialTheme.colorScheme.surfaceVariant,
-        shape = CircleShape,
-        modifier = Modifier.clickable { showSheet = true }
-    ) {
-        Row(
-            modifier = Modifier.padding(start = 12.dp, end = 4.dp, top = 5.dp, bottom = 5.dp),
-            verticalAlignment = Alignment.CenterVertically
+    Box {
+        // Compact pill: model name + a small chevron.
+        Surface(
+            color = MaterialTheme.colorScheme.surfaceVariant,
+            shape = CircleShape,
+            modifier = Modifier.clickable { open = true }
         ) {
-            Text(
-                model.displayName,
-                fontWeight = FontWeight.Medium,
-                fontSize = 14.sp,
-                color = MaterialTheme.colorScheme.onSurface,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.widthIn(max = 168.dp)
-            )
-            Icon(
-                Icons.Default.KeyboardArrowDown,
-                contentDescription = "切换模型",
-                modifier = Modifier.size(18.dp),
-                tint = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
-    }
-
-    if (showSheet) {
-        ModalBottomSheet(onDismissRequest = { showSheet = false }, sheetState = sheetState) {
-            Column(Modifier.fillMaxWidth().navigationBarsPadding().padding(bottom = 8.dp)) {
+            Row(
+                modifier = Modifier.padding(start = 12.dp, end = 4.dp, top = 5.dp, bottom = 5.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
                 Text(
-                    "选择模型",
-                    fontWeight = FontWeight.SemiBold,
-                    fontSize = 16.sp,
-                    modifier = Modifier.padding(start = 20.dp, end = 20.dp, bottom = 4.dp)
+                    model.displayName,
+                    fontWeight = FontWeight.Medium,
+                    fontSize = 14.sp,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.widthIn(max = 168.dp)
                 )
+                Icon(
+                    Icons.Default.KeyboardArrowDown,
+                    contentDescription = "切换模型",
+                    modifier = Modifier.size(18.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+
+        // Rounded card popup (腾讯元宝 style) — not a bottom sheet, not the boxy default menu.
+        DropdownMenu(
+            expanded = open,
+            onDismissRequest = { open = false },
+            shape = RoundedCornerShape(20.dp),
+            containerColor = MaterialTheme.colorScheme.surface,
+            tonalElevation = 0.dp,
+            shadowElevation = 10.dp
+        ) {
+            Column(Modifier.widthIn(min = 248.dp, max = 308.dp)) {
                 models.groupBy { prov(it) }.forEach { (p, ms) ->
                     Text(
                         p,
-                        fontSize = 12.sp,
+                        fontSize = 11.5.sp,
                         fontWeight = FontWeight.Medium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(start = 20.dp, top = 12.dp, bottom = 2.dp)
+                        modifier = Modifier.padding(start = 18.dp, end = 18.dp, top = 12.dp, bottom = 2.dp)
                     )
                     ms.forEach { m ->
                         val selected = m.id == model.id
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clickable { close { onSelect(m.id) } }
-                                .padding(horizontal = 20.dp, vertical = 11.dp),
+                                .clickable { open = false; onSelect(m.id) }
+                                .padding(horizontal = 18.dp, vertical = 10.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            if (m.reasoning) {
-                                Icon(Icons.Default.Psychology, null, modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                                Spacer(Modifier.width(8.dp))
-                            }
                             Column(Modifier.weight(1f)) {
                                 Text(
                                     m.displayName,
-                                    fontWeight = FontWeight.Medium,
+                                    fontWeight = FontWeight.SemiBold,
                                     fontSize = 15.sp,
                                     color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
                                 )
-                                Text(m.id, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text(m.id, fontSize = 11.5.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
-                            if (selected) Icon(Icons.Default.Check, "当前", tint = MaterialTheme.colorScheme.primary)
+                            if (selected) Icon(Icons.Default.Check, "当前", modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary)
                         }
                     }
                 }
-                HorizontalDivider(Modifier.padding(top = 8.dp, bottom = 4.dp))
+                HorizontalDivider(Modifier.padding(top = 6.dp, bottom = 2.dp))
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clickable { close { onManage() } }
-                        .padding(horizontal = 20.dp, vertical = 12.dp),
+                        .clickable { open = false; onManage() }
+                        .padding(start = 18.dp, end = 12.dp, top = 12.dp, bottom = 12.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(Icons.Default.Tune, null, modifier = Modifier.size(20.dp), tint = MaterialTheme.colorScheme.primary)
-                    Spacer(Modifier.width(12.dp))
-                    Text("管理 / 添加供应商", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Medium)
+                    Text("管理 / 添加供应商", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
+                    Icon(Icons.Default.KeyboardArrowRight, null, modifier = Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
         }
@@ -756,7 +753,7 @@ private fun InputBar(
                 showPlusPanel = !showPlusPanel
             }) {
                 Icon(
-                    if (showPlusPanel) Icons.Default.Close else Icons.Default.Add,
+                    Icons.Default.Add,
                     contentDescription = "更多功能",
                     tint = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -795,7 +792,11 @@ private fun InputBar(
                 )
             }
         }
-        if (showPlusPanel) {
+        AnimatedVisibility(
+            visible = showPlusPanel,
+            enter = expandVertically(animationSpec = tween(240)) + fadeIn(tween(240)),
+            exit = shrinkVertically(animationSpec = tween(200)) + fadeOut(tween(140))
+        ) {
             PlusPanel(
                 onImage = { showPlusPanel = false; onPickImage() },
                 onFile = { showPlusPanel = false; onPickFile() }
