@@ -1,0 +1,66 @@
+package com.dschat.app.agent
+
+import android.content.Context
+import com.dschat.app.agent.tools.CalendarCreateTool
+import com.dschat.app.agent.tools.CalendarReadTool
+import com.dschat.app.agent.tools.ContactsTool
+import com.dschat.app.agent.tools.DateTimeTool
+import com.dschat.app.agent.tools.DeleteFileTool
+import com.dschat.app.agent.tools.DeviceInfoTool
+import com.dschat.app.agent.tools.FetchUrlTool
+import com.dschat.app.agent.tools.FetchUrlsTool
+import com.dschat.app.agent.tools.FindAppTool
+import com.dschat.app.agent.tools.GetWeatherTool
+import com.dschat.app.agent.tools.FindFilesTool
+import com.dschat.app.agent.tools.ForgetMemoryTool
+import com.dschat.app.agent.tools.GetClipboardTool
+import com.dschat.app.agent.tools.HttpRequestTool
+import com.dschat.app.agent.tools.ListFilesTool
+import com.dschat.app.agent.tools.LocationTool
+import com.dschat.app.agent.tools.OpenAppTool
+import com.dschat.app.agent.tools.OpenUrlTool
+import com.dschat.app.agent.tools.ReadFileTool
+import com.dschat.app.agent.tools.ReadMemoryTool
+import com.dschat.app.agent.tools.RunJavascriptTool
+import com.dschat.app.agent.tools.SaveMemoryTool
+import com.dschat.app.agent.tools.SendNotificationTool
+import com.dschat.app.agent.tools.SetAlarmTool
+import com.dschat.app.agent.tools.SetClipboardTool
+import com.dschat.app.agent.tools.SetReminderTool
+import com.dschat.app.agent.tools.ShareTextTool
+import com.dschat.app.agent.tools.WebSearchTool
+import com.dschat.app.agent.tools.WriteFileTool
+import com.dschat.app.data.settings.SettingsRepository
+import kotlinx.serialization.json.JsonObject
+
+class ToolRegistry(context: Context, private val settings: SettingsRepository) {
+
+    private val app = context.applicationContext
+
+    private val all: List<Tool> = listOf(
+        // networking
+        WebSearchTool(settings), FetchUrlTool(), FetchUrlsTool(), HttpRequestTool(), GetWeatherTool(app, settings),
+        // files
+        ReadFileTool(), WriteFileTool(), ListFilesTool(), DeleteFileTool(), FindFilesTool(),
+        // memory
+        SaveMemoryTool(settings), ReadMemoryTool(settings), ForgetMemoryTool(settings),
+        // utility
+        DateTimeTool(), DeviceInfoTool(app), RunJavascriptTool(),
+        // device
+        GetClipboardTool(app), SetClipboardTool(app), ShareTextTool(app),
+        OpenUrlTool(app), OpenAppTool(app), FindAppTool(app),
+        SetReminderTool(app), SendNotificationTool(app),
+        // permissioned
+        LocationTool(app), CalendarReadTool(app), CalendarCreateTool(app),
+        ContactsTool(app), SetAlarmTool(app)
+    )
+
+    val allTools: List<Tool> get() = all
+
+    fun enabled(): List<Tool> = all.filter { settings.isToolEnabled(it.name) }
+
+    /** tools[] for the API, or null if none enabled. */
+    fun apiSchemas(): List<JsonObject>? = enabled().takeIf { it.isNotEmpty() }?.map { it.toApiSchema() }
+
+    fun find(name: String): Tool? = all.firstOrNull { it.name == name }
+}

@@ -1,0 +1,17 @@
+*.iml
+.gradle/
+/local.properties
+.idea/
+.DS_Store
+/build
+/captures
+.externalNativeBuild
+.cxx
+app/build/
+*.log
+.kotlin/
+# Local agent/tooling state — MAY CONTAIN API KEYS in allowlisted commands. Never publish.
+.claude/
+# Local test screenshots / artifacts
+_shots/
+*.apk
