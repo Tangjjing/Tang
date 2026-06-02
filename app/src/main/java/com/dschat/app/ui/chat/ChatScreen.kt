@@ -387,6 +387,7 @@ private fun ModelSelector(
     onManage: () -> Unit
 ) {
     var open by remember { mutableStateOf(false) }
+    var pickProvider by remember { mutableStateOf<String?>(null) }
     fun prov(m: ChatModel) = m.provider.ifBlank { "其它" }
 
     Box {
@@ -418,56 +419,70 @@ private fun ModelSelector(
             }
         }
 
-        // Rounded card popup (腾讯元宝 style) — not a bottom sheet, not the boxy default menu.
+        // Compact rounded card popup (腾讯元宝 style). Two-level: 供应商 → 型号, so it stays small
+        // and doesn't cover the screen — no dumping every model at once.
         DropdownMenu(
             expanded = open,
-            onDismissRequest = { open = false },
-            shape = RoundedCornerShape(20.dp),
+            onDismissRequest = { open = false; pickProvider = null },
+            shape = RoundedCornerShape(16.dp),
             containerColor = MaterialTheme.colorScheme.surface,
             tonalElevation = 0.dp,
-            shadowElevation = 10.dp
+            shadowElevation = 8.dp
         ) {
-            Column(Modifier.widthIn(min = 248.dp, max = 308.dp)) {
-                models.groupBy { prov(it) }.forEach { (p, ms) ->
-                    Text(
-                        p,
-                        fontSize = 11.5.sp,
-                        fontWeight = FontWeight.Medium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(start = 18.dp, end = 18.dp, top = 12.dp, bottom = 2.dp)
-                    )
-                    ms.forEach { m ->
-                        val selected = m.id == model.id
+            Column(Modifier.widthIn(min = 196.dp, max = 248.dp)) {
+                val current = pickProvider
+                if (current == null) {
+                    // Level 1: providers
+                    models.map { prov(it) }.distinct().forEach { p ->
                         Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable { open = false; onSelect(m.id) }
-                                .padding(horizontal = 18.dp, vertical = 10.dp),
+                            modifier = Modifier.fillMaxWidth().clickable { pickProvider = p }
+                                .padding(start = 16.dp, end = 10.dp, top = 9.dp, bottom = 9.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Column(Modifier.weight(1f)) {
-                                Text(
-                                    m.displayName,
-                                    fontWeight = FontWeight.SemiBold,
-                                    fontSize = 15.sp,
-                                    color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
-                                )
-                                Text(m.id, fontSize = 11.5.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            }
-                            if (selected) Icon(Icons.Default.Check, "当前", modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary)
+                            Text(
+                                p, fontSize = 13.5.sp, fontWeight = FontWeight.Medium,
+                                color = if (prov(model) == p) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier.weight(1f)
+                            )
+                            Text("${models.count { prov(it) == p }}", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Icon(Icons.Default.KeyboardArrowRight, null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
-                }
-                HorizontalDivider(Modifier.padding(top = 6.dp, bottom = 2.dp))
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { open = false; onManage() }
-                        .padding(start = 18.dp, end = 12.dp, top = 12.dp, bottom = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text("管理 / 添加供应商", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
-                    Icon(Icons.Default.KeyboardArrowRight, null, modifier = Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    HorizontalDivider(Modifier.padding(vertical = 2.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth().clickable { open = false; pickProvider = null; onManage() }
+                            .padding(start = 16.dp, end = 10.dp, top = 9.dp, bottom = 9.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("管理 / 添加供应商", fontSize = 13.5.sp, color = MaterialTheme.colorScheme.primary, modifier = Modifier.weight(1f))
+                        Icon(Icons.Default.KeyboardArrowRight, null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                } else {
+                    // Level 2: models within the chosen provider
+                    Row(
+                        modifier = Modifier.fillMaxWidth().clickable { pickProvider = null }
+                            .padding(start = 12.dp, end = 12.dp, top = 9.dp, bottom = 9.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("‹  $current", fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
+                    }
+                    HorizontalDivider(Modifier.padding(bottom = 2.dp))
+                    models.filter { prov(it) == current }.forEach { m ->
+                        val selected = m.id == model.id
+                        Row(
+                            modifier = Modifier.fillMaxWidth().clickable { open = false; pickProvider = null; onSelect(m.id) }
+                                .padding(start = 16.dp, end = 12.dp, top = 9.dp, bottom = 9.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                m.displayName, fontSize = 13.5.sp,
+                                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+                                color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier.weight(1f)
+                            )
+                            if (selected) Icon(Icons.Default.Check, "当前", modifier = Modifier.size(15.dp), tint = MaterialTheme.colorScheme.primary)
+                        }
+                    }
                 }
             }
         }
