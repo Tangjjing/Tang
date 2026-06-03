@@ -9,6 +9,7 @@ import com.dschat.app.agent.intProp
 import com.dschat.app.agent.longOr
 import com.dschat.app.agent.objectSchema
 import com.dschat.app.agent.str
+import com.dschat.app.agent.numberProp
 import com.dschat.app.agent.strProp
 import com.dschat.app.agent.tasks.ReminderScheduler
 import kotlinx.serialization.json.JsonObject
@@ -25,8 +26,8 @@ class SetReminderTool(private val context: Context) : Tool {
     override val sideEffect = true
     override fun parameters() = objectSchema(
         "message" to strProp("提醒内容"),
-        "in_minutes" to intProp("多少分钟后提醒（相对时间）"),
-        "at_time_ms" to strProp("绝对时间 epoch 毫秒（可用 current_datetime 推算）"),
+        "in_minutes" to intProp("多少分钟后提醒（相对时间）", 1, null),
+        "at_time_ms" to numberProp("绝对时间 epoch 毫秒（可用 current_datetime 推算）"),
         required = listOf("message")
     )
 

@@ -24,6 +24,8 @@ import com.dschat.app.agent.objectSchema
 import com.dschat.app.agent.tasks.CalendarWriter
 import com.dschat.app.agent.str
 import com.dschat.app.agent.strOrNull
+import com.dschat.app.agent.ToolLimits
+import com.dschat.app.agent.capNote
 import com.dschat.app.agent.strProp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -98,7 +100,8 @@ class CalendarReadTool(private val context: Context) : Tool {
     override val description = "读取接下来若干天的日历事件。"
     override val sideEffect = false
     override fun parameters() = objectSchema(
-        "days" to intProp("查询未来多少天，默认 7"),
+        "days" to intProp("查询未来多少天，默认 7", 1, 60),
+        "offset" to intProp("从第几条开始返回（翻页用，默认 0）", 0, null),
         required = emptyList()
     )
 
@@ -107,6 +110,7 @@ class CalendarReadTool(private val context: Context) : Tool {
             return@withContext "错误：未授予日历权限。请在 设置→权限 里开启。"
         }
         val days = args.intOr("days", 7).coerceIn(1, 60)
+        val offset = args.intOr("offset", 0).coerceAtLeast(0)
         val now = System.currentTimeMillis()
         val end = now + days * 86_400_000L
         val proj = arrayOf(
@@ -123,17 +127,20 @@ class CalendarReadTool(private val context: Context) : Tool {
                 "${CalendarContract.Events.DTSTART} ASC"
             )?.use { c ->
                 if (c.count == 0) return@withContext "未来 $days 天没有日历事件。"
-                val sb = StringBuilder("未来 $days 天的事件：\n")
-                var i = 0
-                while (c.moveToNext() && i < 50) {
+                val sb = StringBuilder("未来 $days 天的事件（共 ${c.count} 条）：\n")
+                var shown = 0
+                if (offset > 0) c.moveToPosition(offset - 1)
+                while (c.moveToNext() && shown < ToolLimits.CALENDAR_CAP) {
                     val title = c.getString(0) ?: "(无标题)"
                     val start = c.getLong(1)
                     val loc = c.getString(2).orEmpty()
                     sb.append("• ").append(fmt.format(Date(start))).append("  ").append(title)
                     if (loc.isNotBlank()) sb.append("  @").append(loc)
                     sb.append('\n')
-                    i++
+                    shown++
                 }
+                val reached = offset + shown
+                sb.append(capNote(reached, c.count, "，用 offset=$reached 继续翻页"))
                 sb.toString().trim()
             } ?: "无法读取日历"
         } catch (e: Exception) {
@@ -204,6 +211,7 @@ class ContactsTool(private val context: Context) : Tool {
     override val sideEffect = false
     override fun parameters() = objectSchema(
         "query" to strProp("姓名关键词"),
+        "offset" to intProp("从第几条开始返回（翻页用，默认 0）", 0, null),
         required = listOf("query")
     )
 
@@ -213,6 +221,7 @@ class ContactsTool(private val context: Context) : Tool {
         }
         val q = args.str("query")
         if (q.isBlank()) return@withContext "错误：query 不能为空"
+        val offset = args.intOr("offset", 0).coerceAtLeast(0)
         val proj = arrayOf(
             ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME,
             ContactsContract.CommonDataKinds.Phone.NUMBER
@@ -224,12 +233,15 @@ class ContactsTool(private val context: Context) : Tool {
                 arrayOf("%$q%"), null
             )?.use { c ->
                 if (c.count == 0) return@withContext "没有找到包含「$q」的联系人。"
-                val sb = StringBuilder()
-                var i = 0
-                while (c.moveToNext() && i < 30) {
+                val sb = StringBuilder("包含「$q」的联系人（共 ${c.count} 条）：\n")
+                var shown = 0
+                if (offset > 0) c.moveToPosition(offset - 1)
+                while (c.moveToNext() && shown < ToolLimits.CONTACTS_CAP) {
                     sb.append(c.getString(0)).append("：").append(c.getString(1)).append('\n')
-                    i++
+                    shown++
                 }
+                val reached = offset + shown
+                sb.append(capNote(reached, c.count, "，用 offset=$reached 继续翻页"))
                 sb.toString().trim()
             } ?: "无法读取通讯录"
         } catch (e: Exception) {

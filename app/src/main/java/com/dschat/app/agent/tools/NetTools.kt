@@ -6,6 +6,10 @@ import com.dschat.app.agent.intProp
 import com.dschat.app.agent.objectSchema
 import com.dschat.app.agent.str
 import com.dschat.app.agent.strOrNull
+import com.dschat.app.agent.ToolLimits
+import com.dschat.app.agent.arrayProp
+import com.dschat.app.agent.capWithMarker
+import com.dschat.app.agent.enumProp
 import com.dschat.app.agent.strProp
 import com.dschat.app.data.settings.SettingsRepository
 import kotlinx.coroutines.Dispatchers
@@ -189,6 +193,8 @@ private val exhausted = ConcurrentHashMap<String, Long>()
 private const val QUOTA_COOLDOWN_MS = 2 * 60 * 60 * 1000L // 2 hours
 
 private class SearchQuotaException(message: String) : Exception(message)
+/** A 2xx response whose body couldn't be parsed — surfaced to the model instead of looking like "no results". */
+private class SearchParseException(message: String) : Exception(message)
 
 private fun beName(be: String): String = when (be) {
     "baidu" -> "百度"
@@ -246,9 +252,9 @@ class WebSearchTool(private val settings: SettingsRepository) : Tool {
     override val sideEffect = false
     override fun parameters() = objectSchema(
         "query" to strProp("搜索关键词。构造精确、具体的检索词；可用 site:/intitle: 等限定符。不要照搬用户原话。"),
-        "lang" to strProp("检索语言：zh=只中文(中国本土话题)，en=只英文(技术/学术，英文资料更全)，both=中英都搜，auto=按 query 语言自动(默认)。"),
-        "scope" to strProp("检索范围：web=综合(默认)；academic=学术/论文(走秘塔学术搜索，适合查文献/研究)。"),
-        "max_results" to intProp("返回结果数量，默认 6，最多 12"),
+        "lang" to enumProp("检索语言：zh=只中文(中国本土话题)，en=只英文(技术/学术，英文资料更全)，both=中英都搜，auto=按 query 语言自动(默认)。", listOf("zh", "en", "both", "auto")),
+        "scope" to enumProp("检索范围：web=综合(默认)；academic=学术/论文(走秘塔学术搜索，适合查文献/研究)。", listOf("web", "academic")),
+        "max_results" to intProp("返回结果数量，默认 6，最多 12", 3, 12),
         required = listOf("query")
     )
 
@@ -378,10 +384,9 @@ class WebSearchTool(private val settings: SettingsRepository) : Tool {
                 if (isQuotaError(resp.code, body)) throw SearchQuotaException("HTTP ${resp.code}")
                 return emptyList()
             }
-            val arr = runCatching {
-                ToolHttp.json.parseToJsonElement(body).jsonObject["data"]?.jsonObject
-                    ?.get("webPages")?.jsonObject?.get("value")?.jsonArray
-            }.getOrNull() ?: return emptyList()
+            val root = runCatching { ToolHttp.json.parseToJsonElement(body).jsonObject }.getOrNull()
+                ?: throw SearchParseException("响应不是合法 JSON")
+            val arr = root["data"]?.jsonObject?.get("webPages")?.jsonObject?.get("value")?.jsonArray ?: return emptyList()
             return arr.mapNotNull { e ->
                 val o = e.jsonObject
                 val url = o["url"]?.jsonPrimitive?.contentOrNull ?: return@mapNotNull null
@@ -410,8 +415,9 @@ class WebSearchTool(private val settings: SettingsRepository) : Tool {
                 if (isQuotaError(resp.code, body)) throw SearchQuotaException("HTTP ${resp.code}")
                 return emptyList()
             }
-            val arr = runCatching { ToolHttp.json.parseToJsonElement(body).jsonObject["references"]?.jsonArray }
-                .getOrNull() ?: return emptyList()
+            val root = runCatching { ToolHttp.json.parseToJsonElement(body).jsonObject }.getOrNull()
+                ?: throw SearchParseException("响应不是合法 JSON")
+            val arr = root["references"]?.jsonArray ?: return emptyList()
             return arr.mapNotNull { e ->
                 val o = e.jsonObject
                 val url = o["url"]?.jsonPrimitive?.contentOrNull ?: return@mapNotNull null
@@ -439,7 +445,8 @@ class WebSearchTool(private val settings: SettingsRepository) : Tool {
                 if (isQuotaError(resp.code, body)) throw SearchQuotaException("HTTP ${resp.code}")
                 return emptyList()
             }
-            val root = runCatching { ToolHttp.json.parseToJsonElement(body).jsonObject }.getOrNull() ?: return emptyList()
+            val root = runCatching { ToolHttp.json.parseToJsonElement(body).jsonObject }.getOrNull()
+                ?: throw SearchParseException("响应不是合法 JSON")
             val arr = (root["webpages"] ?: root["scholar"] ?: root["documents"])?.jsonArray ?: return emptyList()
             return arr.mapNotNull { e ->
                 val o = e.jsonObject
@@ -485,7 +492,7 @@ class FetchUrlTool : Tool {
     override val sideEffect = false
     override fun parameters() = objectSchema(
         "url" to strProp("要抓取的网页 URL"),
-        "max_chars" to intProp("返回正文最大字符数，默认 6000"),
+        "max_chars" to intProp("返回正文最大字符数，默认 6000", 500, 20000),
         required = listOf("url")
     )
 
@@ -503,12 +510,8 @@ class FetchUrlsTool : Tool {
     override val description = "并行抓取多个网页的正文文本（一次传入多个 URL），用于同时读取搜索排名靠前的几篇资料，避免逐个抓取的长时间等待。最多 5 个。"
     override val sideEffect = false
     override fun parameters() = objectSchema(
-        "urls" to buildJsonObject {
-            put("type", "array")
-            put("description", "要抓取的网页 URL 列表（最多 5 个，通常取搜索结果里排名靠前的 2~3 个）")
-            putJsonObject("items") { put("type", "string") }
-        },
-        "max_chars" to intProp("每个网页返回正文最大字符数，默认 4000"),
+        "urls" to arrayProp("要抓取的网页 URL 列表（最多 5 个，通常取搜索结果里排名靠前的 2~3 个）"),
+        "max_chars" to intProp("每个网页返回正文最大字符数，默认 4000", 500, 12000),
         required = listOf("urls")
     )
 
@@ -543,7 +546,7 @@ class HttpRequestTool : Tool {
     override val sideEffect = true
     override fun parameters() = objectSchema(
         "url" to strProp("请求 URL"),
-        "method" to strProp("HTTP 方法，默认 GET"),
+        "method" to enumProp("HTTP 方法，默认 GET", listOf("GET", "POST", "PUT", "PATCH", "DELETE")),
         "headers" to strProp("可选，请求头的 JSON 字符串，如 {\"X-Key\":\"v\"}"),
         "body" to strProp("可选，请求体（字符串）"),
         required = listOf("url")
@@ -567,7 +570,7 @@ class HttpRequestTool : Tool {
             builder.method(method, reqBody ?: if (method in setOf("POST", "PUT", "PATCH", "DELETE")) "".toRequestBody() else null)
             ToolHttp.client.newCall(builder.build()).execute().use { resp ->
                 val text = resp.body?.string().orEmpty()
-                "HTTP ${resp.code}\n${text.take(8000)}"
+                "HTTP ${resp.code}\n" + text.capWithMarker(ToolLimits.HTTP_BODY)
             }
         } catch (e: Exception) {
             "请求失败：${e.message}"

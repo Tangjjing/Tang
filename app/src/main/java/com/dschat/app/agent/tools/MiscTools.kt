@@ -18,6 +18,8 @@ import com.dschat.app.agent.intProp
 import com.dschat.app.agent.objectSchema
 import com.dschat.app.agent.str
 import com.dschat.app.agent.strOrNull
+import com.dschat.app.agent.ToolLimits
+import com.dschat.app.agent.enumProp
 import com.dschat.app.agent.strProp
 import com.dschat.app.data.settings.SettingsRepository
 import kotlinx.coroutines.Dispatchers
@@ -130,7 +132,7 @@ class DeviceInfoTool(private val context: Context) : Tool {
         return buildString {
             append("型号：${Build.MANUFACTURER} ${Build.MODEL}\n")
             append("系统：Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})\n")
-            append("电量：$battery%${if (charging) "（充电中）" else ""}\n")
+            append("电量：${if (battery in 0..100) "$battery%" else "未知"}${if (charging) "（充电中）" else ""}\n")
             append("网络：$net\n")
             append("存储：可用 ${String.format(Locale.US, "%.1f", freeGb)} GB / 共 ${String.format(Locale.US, "%.1f", totalStoreGb)} GB\n")
             append("运行内存(RAM)：可用 ${String.format(Locale.US, "%.1f", ramAvailGb)} GB / 共 ${String.format(Locale.US, "%.1f", ramTotalGb)} GB${if (mi.lowMemory) "（内存紧张）" else ""}")
@@ -146,7 +148,8 @@ class GetClipboardTool(private val context: Context) : Tool {
 
     override suspend fun execute(args: JsonObject): String {
         val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
-        val text = cm?.primaryClip?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.coerceToText(context)?.toString()
+            ?: return "错误：无法访问剪贴板服务"
+        val text = cm.primaryClip?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.coerceToText(context)?.toString()
         return text?.takeIf { it.isNotBlank() } ?: "（剪贴板为空）"
     }
 }
@@ -286,7 +289,7 @@ internal val COMMON_APPS: Map<String, String> = mapOf(
 
 class OpenAppTool(private val context: Context) : Tool {
     override val name = "open_app"
-    override val description = "按应用名称或包名打开手机上的 App，例如『微信』或 com.tencent.mm。常见 App 直接传中文名即可。"
+    override val description = "【执行】打开/启动手机上的 App（会真的把它打开），按名称或包名，如『微信』或 com.tencent.mm。只想确认某 App 是否安装、或查它的包名，请改用 find_app（只查不打开）。"
     override val sideEffect = true
     override fun parameters() = objectSchema(
         "app" to strProp("应用名称或包名，如 微信 / com.tencent.mm"),
@@ -326,7 +329,7 @@ class OpenAppTool(private val context: Context) : Tool {
 
 class FindAppTool(private val context: Context) : Tool {
     override val name = "find_app"
-    override val description = "查找手机上已安装的 App：传入名称关键字返回匹配的应用及其包名；不传则列出可启动的应用。"
+    override val description = "【查询】只查找/列出已安装的 App 及其包名，不会打开任何 App。传名称关键字筛选，不传则列出可启动的应用。要真正打开某个 App 请用 open_app。"
     override val sideEffect = false
     override fun parameters() = objectSchema(
         "query" to strProp("应用名称关键字（可选）"),
@@ -340,7 +343,7 @@ class FindAppTool(private val context: Context) : Tool {
         val out = LinkedHashSet<String>()
         // 1) common apps that are actually installed (works even when enumeration is blocked)
         for ((name, pkg) in COMMON_APPS) {
-            if (out.size >= 80) break
+            if (out.size >= ToolLimits.FINDAPP_CAP) break
             if (q.isNotEmpty() && !name.contains(q) && !pkg.lowercase().contains(q)) continue
             if (pm.getLaunchIntentForPackage(pkg) == null) continue
             val label = runCatching { pm.getApplicationLabel(pm.getApplicationInfo(pkg, 0)).toString() }
@@ -350,7 +353,7 @@ class FindAppTool(private val context: Context) : Tool {
         // 2) full enumeration (may be empty on MIUI/HyperOS without 读取应用列表 permission)
         runCatching {
             for (ai in pm.getInstalledApplications(0)) {
-                if (out.size >= 80) break
+                if (out.size >= ToolLimits.FINDAPP_CAP) break
                 if (pm.getLaunchIntentForPackage(ai.packageName) == null) continue
                 val label = pm.getApplicationLabel(ai).toString()
                 if (q.isEmpty() || label.lowercase().contains(q) || ai.packageName.lowercase().contains(q)) {
@@ -361,7 +364,9 @@ class FindAppTool(private val context: Context) : Tool {
         if (out.isEmpty()) {
             "没找到匹配「$raw」的应用。若在小米/HyperOS，请到 设置→Agent→权限 授予『读取应用列表』后重试。"
         } else {
-            out.sorted().joinToString("\n")
+            val capped = out.size >= ToolLimits.FINDAPP_CAP
+            out.sorted().joinToString("\n") +
+                if (capped) "\n（结果较多，已截断到前 ${ToolLimits.FINDAPP_CAP} 个，请用更精确的 query 过滤）" else ""
         }
     }
 }
@@ -376,7 +381,7 @@ class SaveMemoryTool(private val settings: SettingsRepository) : Tool {
     override fun parameters() = objectSchema(
         "title" to strProp("记忆标题，如『关于我』"),
         "content" to strProp("记忆内容"),
-        "category" to strProp("类别标签，如 个人信息/编码偏好/饮食/环境设备/目标计划/人际关系（可空）"),
+        "category" to enumProp("类别标签（可空）", listOf("个人信息", "编码偏好", "饮食", "环境设备", "目标计划", "人际关系", "其它")),
         required = listOf("title", "content")
     )
 

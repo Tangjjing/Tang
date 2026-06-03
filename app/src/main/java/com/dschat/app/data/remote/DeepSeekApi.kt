@@ -161,7 +161,10 @@ class DeepSeekApi {
         messages: List<AgentMessage>,
         temperature: Double?,
         tools: List<JsonObject>?,
-        onUsage: ((Int, Int) -> Unit)? = null
+        onUsage: ((Int, Int) -> Unit)? = null,
+        maxTokens: Int? = null,
+        parallelToolCalls: Boolean? = null,
+        onMeta: ((finishReason: String?) -> Unit)? = null
     ): AgentMessage = withContext(Dispatchers.IO) {
         val url = baseUrl.trimEnd('/') + "/chat/completions"
         val payload = AgentChatRequest(
@@ -169,7 +172,9 @@ class DeepSeekApi {
             messages = messages,
             stream = false,
             temperature = temperature,
-            tools = tools
+            tools = tools,
+            maxTokens = maxTokens,
+            parallelToolCalls = parallelToolCalls
         )
         val requestBody = json.encodeToString(AgentChatRequest.serializer(), payload)
             .toRequestBody("application/json; charset=utf-8".toMediaType())
@@ -178,8 +183,9 @@ class DeepSeekApi {
             .addHeader("Authorization", "Bearer $apiKey")
             .post(requestBody)
             .build()
-        // Retry transient failures (network aborts/timeouts, HTTP 5xx); never retry 4xx.
+        // Retry transient failures (network aborts/timeouts, HTTP 429/5xx); never retry other 4xx.
         var lastError: Exception? = null
+        var retryDelayMs = 0L
         repeat(MAX_RETRIES) { attempt ->
             val resp = try {
                 client.newCall(request).execute()
@@ -195,11 +201,15 @@ class DeepSeekApi {
                     it.isSuccessful -> {
                         val parsed = json.decodeFromString(ChatCompletionResponse.serializer(), str)
                         parsed.usage?.let { u -> onUsage?.invoke(u.promptTokens, u.completionTokens) }
-                        return@withContext parsed.choices.firstOrNull()?.message
-                            ?: AgentMessage(role = "assistant", content = "")
+                        val choice = parsed.choices.firstOrNull()
+                        onMeta?.invoke(choice?.finishReason)
+                        return@withContext choice?.message ?: AgentMessage(role = "assistant", content = "")
                     }
-                    it.code in 500..599 && attempt < MAX_RETRIES - 1 -> {
+                    (it.code == 429 || it.code in 500..599) && attempt < MAX_RETRIES - 1 -> {
                         lastError = IOException("HTTP ${it.code}")
+                        // honor Retry-After (seconds, capped) on 429, else exponential-ish backoff
+                        retryDelayMs = it.header("Retry-After")?.toLongOrNull()?.coerceIn(0, 10)?.times(1000L)
+                            ?: (600L * (attempt + 1))
                         true
                     }
                     else -> {
@@ -212,12 +222,14 @@ class DeepSeekApi {
                     }
                 }
             }
-            if (shouldRetry) delay(600L * (attempt + 1))
+            if (shouldRetry) delay(retryDelayMs)
         }
         throw lastError ?: IOException("请求失败")
     }
 
     companion object {
         private const val MAX_RETRIES = 3
+        /** Generous cap so normal answers aren't truncated, but runaway generation is bounded. */
+        const val DEFAULT_AGENT_MAX_TOKENS = 4096
     }
 }

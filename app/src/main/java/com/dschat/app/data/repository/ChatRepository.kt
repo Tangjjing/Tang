@@ -9,6 +9,7 @@ import com.dschat.app.data.remote.DeepSeekApi
 import com.dschat.app.data.remote.StreamEvent
 import com.dschat.app.data.settings.SettingsRepository
 import com.dschat.app.domain.Role
+import com.dschat.app.domain.providerFromBaseUrl
 import kotlinx.coroutines.flow.Flow
 import kotlinx.serialization.json.JsonObject
 
@@ -57,9 +58,12 @@ class ChatRepository(
     suspend fun chatCompletion(
         modelId: String,
         messages: List<AgentMessage>,
-        tools: List<JsonObject>?
+        tools: List<JsonObject>?,
+        onMeta: ((finishReason: String?) -> Unit)? = null
     ): AgentMessage {
         val (key, url) = settings.credsFor(modelId)
+        // Only hint parallel tool calls to providers we've verified accept it; client parallelizes regardless.
+        val parallel = if (tools != null && providerFromBaseUrl(url) in setOf("DeepSeek", "智谱")) true else null
         return api.chatCompletion(
             apiKey = key,
             baseUrl = url,
@@ -67,7 +71,10 @@ class ChatRepository(
             messages = messages,
             temperature = settings.temperature.value.toDouble(),
             tools = tools,
-            onUsage = { p, c -> settings.recordUsage(modelId, p, c) }
+            onUsage = { p, c -> settings.recordUsage(modelId, p, c) },
+            maxTokens = DeepSeekApi.DEFAULT_AGENT_MAX_TOKENS,
+            parallelToolCalls = parallel,
+            onMeta = onMeta
         )
     }
 

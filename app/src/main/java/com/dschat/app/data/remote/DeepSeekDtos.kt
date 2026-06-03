@@ -114,7 +114,9 @@ data class AgentChatRequest(
     val messages: List<AgentMessage>,
     val stream: Boolean = false,
     val temperature: Double? = null,
-    val tools: List<JsonObject>? = null
+    val tools: List<JsonObject>? = null,
+    @SerialName("max_tokens") val maxTokens: Int? = null,
+    @SerialName("parallel_tool_calls") val parallelToolCalls: Boolean? = null
 )
 
 @Serializable

@@ -106,10 +106,12 @@ object WeatherApi {
             val max = d["tempMax"]?.jsonPrimitive?.contentOrNull?.toIntOrNull() ?: 0
             val min = d["tempMin"]?.jsonPrimitive?.contentOrNull?.toIntOrNull() ?: 0
             val td = d["textDay"]?.jsonPrimitive?.contentOrNull.orEmpty()
-            val pop = d["precip"]?.jsonPrimitive?.contentOrNull
             if (i == 0) { tMax = max; tMin = min }
             list.add("${dayLabel(i)} $td $min~$max°")
         }
+        // 'now' succeeded but no daily forecast → return null so fetch() falls back to Open-Meteo
+        // (a complete report), instead of returning a report with an empty "预报：".
+        if (list.isEmpty()) return null
         val aqi = getJson("https://$host/v7/air/now?location=$loc&key=$key")
             ?.get("now")?.jsonObject?.get("aqi")?.jsonPrimitive?.contentOrNull?.toIntOrNull() ?: -1
         val warn = getJson("https://$host/v7/warning/now?location=$loc&key=$key")

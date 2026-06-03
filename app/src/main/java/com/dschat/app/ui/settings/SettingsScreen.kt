@@ -62,7 +62,7 @@ fun SettingsScreen(
 
         HorizontalDivider(Modifier.padding(top = 8.dp))
         Text(
-            "Tang · by Lxl · v1.12 · 多模型 AI 助手 · 数据仅存本机",
+            "Tang · by Lxl · v1.13 · 多模型 AI 助手 · 数据仅存本机",
             fontSize = 11.sp,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )

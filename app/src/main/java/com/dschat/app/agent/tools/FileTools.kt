@@ -9,6 +9,8 @@ import com.dschat.app.agent.intProp
 import com.dschat.app.agent.objectSchema
 import com.dschat.app.agent.str
 import com.dschat.app.agent.strOrNull
+import com.dschat.app.agent.ToolLimits
+import com.dschat.app.agent.capNote
 import com.dschat.app.agent.strProp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -77,11 +79,13 @@ class ListFilesTool : Tool {
     override val sideEffect = false
     override fun parameters() = objectSchema(
         "path" to strProp("目录路径，默认外部存储根目录"),
+        "offset" to intProp("从第几条开始返回（翻页用，默认 0）", 0, null),
         required = emptyList()
     )
 
     override suspend fun execute(args: JsonObject): String = withContext(Dispatchers.IO) {
         val path = args.str("path").ifBlank { Environment.getExternalStorageDirectory().absolutePath }
+        val offset = args.intOr("offset", 0).coerceAtLeast(0)
         val dir = resolvePath(path)
         when {
             !dir.exists() -> "错误：路径不存在：${dir.absolutePath}"
@@ -90,18 +94,16 @@ class ListFilesTool : Tool {
                 val raw = dir.listFiles()
                     ?: return@withContext "无法列出（可能无权限）：${dir.absolutePath}"
                 if (raw.isEmpty()) return@withContext "（空目录）${dir.absolutePath}"
-                // For big dirs, skip the full sort (sorting thousands is slow) — just take the first 200.
-                val big = raw.size > 500
-                val entries = if (big) raw.asSequence().take(200).toList()
-                    else raw.sortedWith(compareBy({ !it.isDirectory }, { it.name }))
+                val sorted = raw.sortedWith(compareBy({ !it.isDirectory }, { it.name }))
+                val page = sorted.drop(offset).take(ToolLimits.LIST_CAP)
                 buildString {
-                    append(dir.absolutePath).append(" 共 ${raw.size} 项")
-                    if (big) append("（数量较多，未排序，仅列前 200）")
-                    append("：\n")
-                    entries.take(200).forEach { e ->
+                    append(dir.absolutePath).append(" 共 ${raw.size} 项：\n")
+                    page.forEach { e ->
                         if (e.isDirectory) append("📁 ").append(e.name).append("/\n")
                         else append("📄 ").append(e.name).append("  (").append(e.length()).append(" bytes)\n")
                     }
+                    val reached = offset + page.size
+                    append(capNote(reached, raw.size, "，用 offset=$reached 继续翻页"))
                 }.trim()
             }
         }
@@ -140,8 +142,9 @@ class FindFilesTool : Tool {
         "path" to strProp("起始目录，默认外部存储根目录"),
         "name_contains" to strProp("可选：文件名包含的关键字"),
         "extensions" to strProp("可选：扩展名，逗号分隔，如 pdf,docx,txt,xlsx"),
-        "min_size_kb" to intProp("可选：最小大小(KB)，默认 0"),
-        "max_results" to intProp("返回数量，默认 20"),
+        "min_size_kb" to intProp("可选：最小大小(KB)，默认 0", 0, null),
+        "max_results" to intProp("返回数量，默认 20", 1, 100),
+        "offset" to intProp("从第几条开始返回（翻页用，默认 0）", 0, null),
         required = emptyList()
     )
 
@@ -153,12 +156,13 @@ class FindFilesTool : Tool {
             .split(",").map { it.trim().removePrefix(".").lowercase() }.filter { it.isNotEmpty() }.toSet()
         val minBytes = args.intOr("min_size_kb", 0).toLong() * 1024L
         val limit = args.intOr("max_results", 20).coerceIn(1, 100)
+        val offset = args.intOr("offset", 0).coerceAtLeast(0)
 
         val matches = ArrayList<File>()
         var scanned = 0
         val stack = ArrayDeque<File>()
         stack.add(root)
-        while (stack.isNotEmpty() && scanned < 60000) {
+        while (stack.isNotEmpty() && scanned < ToolLimits.FIND_SCAN_CAP) {
             val children = stack.removeLast().listFiles() ?: continue
             for (f in children) {
                 if (f.isDirectory) {
@@ -173,14 +177,18 @@ class FindFilesTool : Tool {
             }
         }
         matches.sortByDescending { it.length() }
-        val top = matches.take(limit)
-        if (top.isEmpty()) return@withContext "在 ${root.absolutePath} 下没找到匹配文件（已扫描 $scanned 个文件）。"
+        val capped = scanned >= ToolLimits.FIND_SCAN_CAP
+        val scanNote = if (capped) "，已达扫描上限、可能未覆盖全部，可缩小 path 或加过滤" else ""
+        val top = matches.drop(offset).take(limit)
+        if (top.isEmpty()) return@withContext "在 ${root.absolutePath} 下没找到匹配文件（已扫描 $scanned 个文件$scanNote）。"
         buildString {
-            append("在 ${root.absolutePath} 下共 ${matches.size} 个匹配（扫描 $scanned 个文件），最大的 ${top.size} 个：\n")
+            append("在 ${root.absolutePath} 下共 ${matches.size} 个匹配（扫描 $scanned 个文件$scanNote），按大小返回 ${top.size} 个：\n")
             top.forEach { f ->
                 val mb = f.length() / 1024.0 / 1024.0
                 append("• ").append(String.format(Locale.US, "%.2f MB", mb)).append("  ").append(f.absolutePath).append('\n')
             }
+            val reached = offset + top.size
+            append(capNote(reached, matches.size, "，用 offset=$reached 继续翻页"))
         }.trim()
     }
 }

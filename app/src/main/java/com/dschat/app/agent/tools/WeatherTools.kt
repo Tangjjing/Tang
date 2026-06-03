@@ -6,6 +6,8 @@ import com.dschat.app.agent.intOr
 import com.dschat.app.agent.intProp
 import com.dschat.app.agent.objectSchema
 import com.dschat.app.agent.strOrNull
+import com.dschat.app.agent.doubleOrNull
+import com.dschat.app.agent.numberProp
 import com.dschat.app.agent.strProp
 import com.dschat.app.agent.tasks.WeatherApi
 import com.dschat.app.data.settings.SettingsRepository
@@ -19,17 +21,17 @@ class GetWeatherTool(private val context: Context, private val settings: Setting
     override val sideEffect = false
     override fun parameters() = objectSchema(
         "city" to strProp("城市名（如 杭州），可选"),
-        "lat" to strProp("纬度（与 lon 一起，可选）"),
-        "lon" to strProp("经度（与 lat 一起，可选）"),
-        "days" to intProp("预报天数，默认 3，最多 7"),
+        "lat" to numberProp("纬度（与 lon 一起，可选）", -90.0, 90.0),
+        "lon" to numberProp("经度（与 lat 一起，可选）", -180.0, 180.0),
+        "days" to intProp("预报天数，默认 3，最多 7", 1, 7),
         required = emptyList()
     )
 
     override suspend fun execute(args: JsonObject): String = withContext(Dispatchers.IO) {
         val days = args.intOr("days", 3).coerceIn(1, 7)
         val city = args.strOrNull("city")
-        val lat = args.strOrNull("lat")?.toDoubleOrNull()
-        val lon = args.strOrNull("lon")?.toDoubleOrNull()
+        val lat = args.doubleOrNull("lat")
+        val lon = args.doubleOrNull("lon")
         val r = WeatherApi.fetch(context, settings, city, lat, lon, days)
             ?: return@withContext "暂时拿不到天气：请确认网络，或传入 city/lat+lon，或在 设置→权限 开启定位（也可在 设置→天气 设一个固定城市）。"
         buildString {
