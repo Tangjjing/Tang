@@ -34,6 +34,8 @@ build.bat              # 或： .\gradlew.bat assembleDebug
 
 产物：`app/build/outputs/apk/debug/app-debug.apk`
 
+**可选 — 预置第三方服务 key**：把 `keys.properties.example` 复制为 `keys.properties` 并填入你自己的 天气 / AI 搜索 key，构建时会自动打包进 App（首次运行即生效、设置里仍可改）。`keys.properties` 已被 gitignore，**不会进仓库**；不创建它则构建出无 key 版本（在设置里手动填）。聊天大模型（DeepSeek 等）的 key 仍在 App 内「模型管理」里填。
+
 需要 **JDK 17**（AGP 8.x 仅支持 17）。本仓库在 `gradle.properties` / `gradlew.bat` 里固化了三处本机环境修复：JDK 17 路径、AF_UNIX selector 临时目录修复（否则 Windows 默认 TEMP 会让 NIO selector 自管道失败）、以及阿里云 Maven 镜像（国内网络拉不到 Google Maven）。**在其它机器构建时，请按需修改 `gradle.properties` 里的 `org.gradle.java.home` 与 `gradlew.bat` 里的路径。**
 
 ## 📲 安装

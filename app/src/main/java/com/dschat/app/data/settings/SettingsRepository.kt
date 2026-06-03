@@ -6,6 +6,7 @@ import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 import com.dschat.app.agent.ExecutionMode
 import com.dschat.app.agent.SearchBackend
+import com.dschat.app.BuildConfig
 import com.dschat.app.domain.ChatModel
 import com.dschat.app.domain.DEFAULT_MODELS
 import com.dschat.app.domain.MemoryItem
@@ -146,21 +147,29 @@ class SettingsRepository(context: Context) {
 
     // Dedicated AI-search API keys (used to power web_search; NOT chat models). Priority chain:
     // 百度(每日100) → 博查(1000总) → 秘塔(学术/备用) → 免费 Bing。
-    private val _searchKeyBaidu = MutableStateFlow(prefs.getString(KEY_SEARCH_BAIDU, "").orEmpty())
+    private val _searchKeyBaidu = MutableStateFlow(prefs.getString(KEY_SEARCH_BAIDU, "").orEmpty().ifBlank { BuildConfig.SEARCH_KEY_BAIDU })
     val searchKeyBaidu: StateFlow<String> = _searchKeyBaidu.asStateFlow()
-    private val _searchKeyBocha = MutableStateFlow(prefs.getString(KEY_SEARCH_BOCHA, "").orEmpty())
+    private val _searchKeyBocha = MutableStateFlow(prefs.getString(KEY_SEARCH_BOCHA, "").orEmpty().ifBlank { BuildConfig.SEARCH_KEY_BOCHA })
     val searchKeyBocha: StateFlow<String> = _searchKeyBocha.asStateFlow()
-    private val _searchKeyMetaso = MutableStateFlow(prefs.getString(KEY_SEARCH_METASO, "").orEmpty())
+    private val _searchKeyMetaso = MutableStateFlow(prefs.getString(KEY_SEARCH_METASO, "").orEmpty().ifBlank { BuildConfig.SEARCH_KEY_METASO })
     val searchKeyMetaso: StateFlow<String> = _searchKeyMetaso.asStateFlow()
+
+    // Editable per-backend search endpoint URLs (so providers/endpoints can be swapped later).
+    private val _searchUrlBaidu = MutableStateFlow(prefs.getString(KEY_SEARCH_URL_BAIDU, "").orEmpty().ifBlank { DEFAULT_SEARCH_URL_BAIDU })
+    val searchUrlBaidu: StateFlow<String> = _searchUrlBaidu.asStateFlow()
+    private val _searchUrlBocha = MutableStateFlow(prefs.getString(KEY_SEARCH_URL_BOCHA, "").orEmpty().ifBlank { DEFAULT_SEARCH_URL_BOCHA })
+    val searchUrlBocha: StateFlow<String> = _searchUrlBocha.asStateFlow()
+    private val _searchUrlMetaso = MutableStateFlow(prefs.getString(KEY_SEARCH_URL_METASO, "").orEmpty().ifBlank { DEFAULT_SEARCH_URL_METASO })
+    val searchUrlMetaso: StateFlow<String> = _searchUrlMetaso.asStateFlow()
 
     // Which AI-search backend to try first (baidu/bocha/metaso); the rest follow in default order.
     private val _searchPrimary = MutableStateFlow(prefs.getString(KEY_SEARCH_PRIMARY, "baidu").orEmpty().ifBlank { "baidu" })
     val searchPrimary: StateFlow<String> = _searchPrimary.asStateFlow()
 
     // ---- Weather (get_weather tool + proactive monitor) ----
-    private val _qweatherKey = MutableStateFlow(prefs.getString(KEY_QWEATHER_KEY, "").orEmpty())
+    private val _qweatherKey = MutableStateFlow(prefs.getString(KEY_QWEATHER_KEY, "").orEmpty().ifBlank { BuildConfig.QWEATHER_KEY })
     val qweatherKey: StateFlow<String> = _qweatherKey.asStateFlow()
-    private val _qweatherHost = MutableStateFlow(prefs.getString(KEY_QWEATHER_HOST, "devapi.qweather.com").orEmpty().ifBlank { "devapi.qweather.com" })
+    private val _qweatherHost = MutableStateFlow(prefs.getString(KEY_QWEATHER_HOST, "").orEmpty().ifBlank { BuildConfig.QWEATHER_HOST }.ifBlank { "devapi.qweather.com" })
     val qweatherHost: StateFlow<String> = _qweatherHost.asStateFlow()
     private val _weatherCity = MutableStateFlow(prefs.getString(KEY_WEATHER_CITY, "").orEmpty())
     val weatherCity: StateFlow<String> = _weatherCity.asStateFlow()
@@ -652,6 +661,9 @@ class SettingsRepository(context: Context) {
     fun setSearchKeyBocha(v: String) { _searchKeyBocha.value = v.trim(); prefs.edit().putString(KEY_SEARCH_BOCHA, v.trim()).apply() }
     fun setSearchKeyMetaso(v: String) { _searchKeyMetaso.value = v.trim(); prefs.edit().putString(KEY_SEARCH_METASO, v.trim()).apply() }
     fun setSearchPrimary(v: String) { _searchPrimary.value = v; prefs.edit().putString(KEY_SEARCH_PRIMARY, v).apply() }
+    fun setSearchUrlBaidu(v: String) { val u = v.trim().ifBlank { DEFAULT_SEARCH_URL_BAIDU }; _searchUrlBaidu.value = u; prefs.edit().putString(KEY_SEARCH_URL_BAIDU, u).apply() }
+    fun setSearchUrlBocha(v: String) { val u = v.trim().ifBlank { DEFAULT_SEARCH_URL_BOCHA }; _searchUrlBocha.value = u; prefs.edit().putString(KEY_SEARCH_URL_BOCHA, u).apply() }
+    fun setSearchUrlMetaso(v: String) { val u = v.trim().ifBlank { DEFAULT_SEARCH_URL_METASO }; _searchUrlMetaso.value = u; prefs.edit().putString(KEY_SEARCH_URL_METASO, u).apply() }
 
     fun setQweatherKey(v: String) { _qweatherKey.value = v.trim(); prefs.edit().putString(KEY_QWEATHER_KEY, v.trim()).apply() }
     fun setQweatherHost(v: String) { val h = v.trim().ifBlank { "devapi.qweather.com" }; _qweatherHost.value = h; prefs.edit().putString(KEY_QWEATHER_HOST, h).apply() }
@@ -712,6 +724,12 @@ class SettingsRepository(context: Context) {
         private const val KEY_SEARCH_BOCHA = "search_key_bocha"
         private const val KEY_SEARCH_METASO = "search_key_metaso"
         private const val KEY_SEARCH_PRIMARY = "search_primary"
+        private const val KEY_SEARCH_URL_BAIDU = "search_url_baidu"
+        private const val KEY_SEARCH_URL_BOCHA = "search_url_bocha"
+        private const val KEY_SEARCH_URL_METASO = "search_url_metaso"
+        const val DEFAULT_SEARCH_URL_BAIDU = "https://qianfan.baidubce.com/v2/ai_search"
+        const val DEFAULT_SEARCH_URL_BOCHA = "https://api.bochaai.com/v1/web-search"
+        const val DEFAULT_SEARCH_URL_METASO = "https://metaso.cn/api/v1/search"
         private const val KEY_QWEATHER_KEY = "qweather_key"
         private const val KEY_QWEATHER_HOST = "qweather_host"
         private const val KEY_WEATHER_CITY = "weather_city"

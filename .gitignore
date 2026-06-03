@@ -10,6 +10,8 @@
 app/build/
 *.log
 .kotlin/
+# Baked third-party service keys — NEVER publish (use keys.properties.example as the template).
+keys.properties
 # Local agent/tooling state — MAY CONTAIN API KEYS in allowlisted commands. Never publish.
 .claude/
 # Local test screenshots / artifacts

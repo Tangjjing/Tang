@@ -1,0 +1,14 @@
+# Copy this file to `keys.properties` and fill in your own keys.
+# `keys.properties` is gitignored and gets baked into the app at build time (BuildConfig),
+# so the app works without manually typing keys. Leave any line blank to ship a keyless build.
+#
+# These are all OPTIONAL — the app also lets you enter/override them in 设置 at runtime.
+
+# 和风天气 QWeather (weather). Host is your account's dedicated API host (控制台→设置).
+QWEATHER_KEY=
+QWEATHER_HOST=
+
+# AI 搜索 (web_search) — search services, NOT chat models.
+SEARCH_KEY_BAIDU=
+SEARCH_KEY_BOCHA=
+SEARCH_KEY_METASO=

@@ -369,7 +369,7 @@ class WebSearchTool(private val settings: SettingsRepository) : Tool {
     private fun bocha(q: String, n: Int, key: String): List<SearchResult> {
         if (key.isBlank()) return emptyList()
         val payload = buildJsonObject { put("query", q); put("count", n); put("summary", true) }
-        val req = Request.Builder().url("https://api.bochaai.com/v1/web-search")
+        val req = Request.Builder().url(settings.searchUrlBocha.value)
             .addHeader("Authorization", "Bearer $key")
             .post(payload.toString().toRequestBody(ToolHttp.JSON_MEDIA)).build()
         ToolHttp.client.newCall(req).execute().use { resp ->
@@ -401,7 +401,7 @@ class WebSearchTool(private val settings: SettingsRepository) : Tool {
             putJsonArray("messages") { add(buildJsonObject { put("role", "user"); put("content", q) }) }
             putJsonArray("resource_type_filter") { add(buildJsonObject { put("type", "web"); put("top_k", n) }) }
         }
-        val req = Request.Builder().url("https://qianfan.baidubce.com/v2/ai_search")
+        val req = Request.Builder().url(settings.searchUrlBaidu.value)
             .addHeader("Authorization", "Bearer $key")
             .post(payload.toString().toRequestBody(ToolHttp.JSON_MEDIA)).build()
         ToolHttp.client.newCall(req).execute().use { resp ->
@@ -430,7 +430,7 @@ class WebSearchTool(private val settings: SettingsRepository) : Tool {
         val payload = buildJsonObject {
             put("q", q); put("scope", scope); put("size", n.toString()); put("includeSummary", true)
         }
-        val req = Request.Builder().url("https://metaso.cn/api/v1/search")
+        val req = Request.Builder().url(settings.searchUrlMetaso.value)
             .addHeader("Authorization", "Bearer $key")
             .post(payload.toString().toRequestBody(ToolHttp.JSON_MEDIA)).build()
         ToolHttp.client.newCall(req).execute().use { resp ->

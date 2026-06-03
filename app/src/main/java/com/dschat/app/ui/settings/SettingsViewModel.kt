@@ -24,6 +24,9 @@ class SettingsViewModel(private val settings: SettingsRepository) : ViewModel() 
     val searchKeyBocha: StateFlow<String> = settings.searchKeyBocha
     val searchKeyMetaso: StateFlow<String> = settings.searchKeyMetaso
     val searchPrimary: StateFlow<String> = settings.searchPrimary
+    val searchUrlBaidu: StateFlow<String> = settings.searchUrlBaidu
+    val searchUrlBocha: StateFlow<String> = settings.searchUrlBocha
+    val searchUrlMetaso: StateFlow<String> = settings.searchUrlMetaso
     val qweatherKey: StateFlow<String> = settings.qweatherKey
     val qweatherHost: StateFlow<String> = settings.qweatherHost
     val weatherCity: StateFlow<String> = settings.weatherCity
@@ -57,6 +60,9 @@ class SettingsViewModel(private val settings: SettingsRepository) : ViewModel() 
     fun setSearchKeyBocha(v: String) = settings.setSearchKeyBocha(v)
     fun setSearchKeyMetaso(v: String) = settings.setSearchKeyMetaso(v)
     fun setSearchPrimary(v: String) = settings.setSearchPrimary(v)
+    fun setSearchUrlBaidu(v: String) = settings.setSearchUrlBaidu(v)
+    fun setSearchUrlBocha(v: String) = settings.setSearchUrlBocha(v)
+    fun setSearchUrlMetaso(v: String) = settings.setSearchUrlMetaso(v)
     fun setQweatherKey(v: String) = settings.setQweatherKey(v)
     fun setQweatherHost(v: String) = settings.setQweatherHost(v)
     fun setWeatherCity(v: String) = settings.setWeatherCity(v)

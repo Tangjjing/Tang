@@ -29,6 +29,9 @@ fun AgentSettingsScreen(viewModel: SettingsViewModel, onBack: () -> Unit) {
     val searchKeyBocha by viewModel.searchKeyBocha.collectAsStateWithLifecycle()
     val searchKeyMetaso by viewModel.searchKeyMetaso.collectAsStateWithLifecycle()
     val searchPrimary by viewModel.searchPrimary.collectAsStateWithLifecycle()
+    val searchUrlBaidu by viewModel.searchUrlBaidu.collectAsStateWithLifecycle()
+    val searchUrlBocha by viewModel.searchUrlBocha.collectAsStateWithLifecycle()
+    val searchUrlMetaso by viewModel.searchUrlMetaso.collectAsStateWithLifecycle()
 
     SettingsSubScreen("Agent（工具调用）", onBack) {
         ToggleRow(
@@ -88,6 +91,30 @@ fun AgentSettingsScreen(viewModel: SettingsViewModel, onBack: () -> Unit) {
                 placeholder = { Text("mk-...") }
             )
             Hint("调用优先级：百度 → 博查 → 秘塔 →（都没配或失败时）免费 Bing。每次搜索只命中一个、按顺序回退，最省额度。学术/论文类问题模型会自动改用秘塔。这三者是“AI 搜索”服务，只用来联网查资料，不是聊天大模型。")
+
+            SectionTitle("搜索接口地址（一般不用改；换服务/迁移时可在此替换）")
+            OutlinedTextField(
+                value = searchUrlBaidu,
+                onValueChange = viewModel::setSearchUrlBaidu,
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                label = { Text("百度千帆 接口地址") }
+            )
+            OutlinedTextField(
+                value = searchUrlBocha,
+                onValueChange = viewModel::setSearchUrlBocha,
+                modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                singleLine = true,
+                label = { Text("博查 Bocha 接口地址") }
+            )
+            OutlinedTextField(
+                value = searchUrlMetaso,
+                onValueChange = viewModel::setSearchUrlMetaso,
+                modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                singleLine = true,
+                label = { Text("秘塔 Metaso 接口地址") }
+            )
+            Hint("留空会自动恢复默认地址。")
             Hint("⚠️ 完全放权模式下，模型可不经确认直接读写文件、发请求等，请谨慎使用。")
         }
     }

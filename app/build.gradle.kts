@@ -1,3 +1,6 @@
+import java.io.FileInputStream
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -17,6 +20,17 @@ android {
         versionCode = 112
         versionName = "1.12"
         vectorDrawables { useSupportLibrary = true }
+
+        // Bake third-party service keys from a GITIGNORED keys.properties (never in the public repo).
+        // Missing file → empty strings, so a fresh clone builds a keyless app (keys entered in 设置).
+        val keysFile = rootProject.file("keys.properties")
+        val keysProps = Properties().apply { if (keysFile.exists()) FileInputStream(keysFile).use { load(it) } }
+        fun secret(name: String): String = (keysProps.getProperty(name) ?: "").trim()
+        buildConfigField("String", "QWEATHER_KEY", "\"${secret("QWEATHER_KEY")}\"")
+        buildConfigField("String", "QWEATHER_HOST", "\"${secret("QWEATHER_HOST")}\"")
+        buildConfigField("String", "SEARCH_KEY_BAIDU", "\"${secret("SEARCH_KEY_BAIDU")}\"")
+        buildConfigField("String", "SEARCH_KEY_BOCHA", "\"${secret("SEARCH_KEY_BOCHA")}\"")
+        buildConfigField("String", "SEARCH_KEY_METASO", "\"${secret("SEARCH_KEY_METASO")}\"")
     }
 
     buildTypes {
@@ -40,6 +54,7 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 
     packaging {
