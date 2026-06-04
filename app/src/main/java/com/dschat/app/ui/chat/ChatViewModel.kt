@@ -344,7 +344,7 @@ class ChatViewModel(
 
     private fun buildApiHistory(): List<ApiMessage> {
         val list = mutableListOf<ApiMessage>()
-        systemContent(agentMode = false)?.let { list += textApiMessage(Role.SYSTEM.apiValue, it) }
+        systemContent(agentMode = false, query = lastUserText)?.let { list += textApiMessage(Role.SYSTEM.apiValue, it) }
         _uiState.value.messages.forEach { m ->
             if (m.isStreaming || m.error || m.transient || m.tools != null) return@forEach
             if (m.content.isBlank() && m.images.isNullOrEmpty() && m.apiText.isNullOrBlank()) return@forEach
@@ -494,13 +494,17 @@ class ChatViewModel(
         val assistantText = _uiState.value.messages
             .lastOrNull { it.role == Role.ASSISTANT && it.tools == null && !it.transient && it.content.isNotBlank() }
             ?.content
+        // Prior user turns (excluding the latest) so facts stated across several messages aren't missed.
+        val recentUserTexts = _uiState.value.messages
+            .filter { it.role == Role.USER && !it.transient && it.content.isNotBlank() }
+            .takeLast(4).dropLast(1).map { it.content }
         viewModelScope.launch {
-            val extraction = extractor.extract(userText, assistantText) ?: return@launch
+            val extraction = extractor.extract(userText, assistantText, recentUserTexts) ?: return@launch
             withContext(NonCancellable) {
                 // Mark still-relevant memories first (smarter pruning), then apply add/update ops.
                 if (extraction.referencedIds.isNotEmpty()) settings.touchReferenced(extraction.referencedIds)
                 if (extraction.ops.isNotEmpty()) {
-                    val result = settings.applyMemoryOps(extraction.ops)
+                    val result = settings.applyMemoryOps(extraction.ops, conversationId)
                     val titles = (result.addedTitles + result.updatedTitles).filter { it.isNotBlank() }.distinct()
                     if (titles.isNotEmpty()) showMemoryCapturedIndicator(titles, conversationId)
                 }
@@ -666,7 +670,7 @@ class ChatViewModel(
 
     private fun buildAgentHistory(): List<AgentMessage> {
         val list = mutableListOf<AgentMessage>()
-        systemContent(agentMode = true)?.let { list += AgentMessage(role = Role.SYSTEM.apiValue, content = it) }
+        systemContent(agentMode = true, query = lastUserText)?.let { list += AgentMessage(role = Role.SYSTEM.apiValue, content = it) }
         _uiState.value.messages.forEach { m ->
             if (m.isStreaming || m.error || m.transient || m.tools != null || m.content.isBlank()) return@forEach
             if (m.role == Role.USER || m.role == Role.ASSISTANT) {
@@ -680,12 +684,17 @@ class ChatViewModel(
         return list
     }
 
-    private fun systemContent(agentMode: Boolean): String? {
+    private fun systemContent(agentMode: Boolean, query: String): String? {
         val parts = mutableListOf<String>()
         parts += dateLine()
         val sysPrompt = _uiState.value.systemPromptOverride?.takeIf { it.isNotBlank() } ?: settings.systemPrompt.value
         sysPrompt.trim().takeIf { it.isNotEmpty() }?.let { parts += it }
-        settings.enabledMemoriesText().takeIf { it.isNotEmpty() }?.let { parts += it }
+        // Inject only the memories relevant to this turn; bump their lastReferencedAt for smarter pruning.
+        val (memText, memIds) = settings.selectMemoriesForContext(query)
+        if (memText.isNotEmpty()) {
+            parts += memText
+            settings.touchReferenced(memIds)
+        }
         if (agentMode) parts += AGENT_GUIDE
         return parts.takeIf { it.isNotEmpty() }?.joinToString("\n\n")
     }

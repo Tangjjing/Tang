@@ -78,7 +78,19 @@ data class MemoryItem(
     /** Epoch ms of last edit (manual or auto-merge); 0 if never. */
     val updatedAt: Long = 0L,
     /** Epoch ms this memory was last judged relevant to a conversation; drives smarter pruning. */
-    val lastReferencedAt: Long = 0L
+    val lastReferencedAt: Long = 0L,
+    /** Conversation this fact was captured from; 0 = unknown / manually created. Enables "查看来源". */
+    val sourceConversationId: Long = 0L,
+    /** Review mode: an auto-captured memory awaiting user confirmation. Pending entries are NOT injected. */
+    val pending: Boolean = false,
+    /** Pinned memories are always injected (skip relevance filtering) and never auto-pruned. */
+    val pinned: Boolean = false
+)
+
+/** Canonical category labels — the single source shared by the extractor prompt, inferCategory,
+ *  the save_memory tool, and the management UI (keeps the three in sync). */
+val MEMORY_CATEGORIES = listOf(
+    "个人信息", "沟通偏好", "编码偏好", "饮食", "环境设备", "目标计划", "人际关系", "其它"
 )
 
 /** One memory mutation proposed by the MemoryExtractor: op = "add" | "update" | "skip". */

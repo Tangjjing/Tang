@@ -56,6 +56,7 @@ import com.dschat.app.domain.ToolStatus
 import com.dschat.app.domain.UiMessage
 import com.dschat.app.ui.components.Base64Image
 import com.dschat.app.ui.components.MarkdownText
+import com.dschat.app.ui.components.StreamingMarkdownText
 import java.util.Locale
 
 @Composable
@@ -142,11 +143,9 @@ private fun AssistantMessage(message: UiMessage, onManageMemory: () -> Unit = {}
 
             message.isStreaming -> AiSurface {
                 Column {
-                    Text(
-                        text = message.content + " ▌",
-                        color = MaterialTheme.colorScheme.onSurface,
-                        fontSize = 14.sp,
-                        lineHeight = 19.sp
+                    StreamingMarkdownText(
+                        content = message.content,
+                        color = MaterialTheme.colorScheme.onSurface
                     )
                     GenStatusLine(message.startedAt, message.content, message.reasoning)
                 }

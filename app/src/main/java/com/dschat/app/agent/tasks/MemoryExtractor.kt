@@ -3,6 +3,7 @@ package com.dschat.app.agent.tasks
 import com.dschat.app.data.remote.AgentMessage
 import com.dschat.app.data.remote.DeepSeekApi
 import com.dschat.app.data.settings.SettingsRepository
+import com.dschat.app.domain.MEMORY_CATEGORIES
 import com.dschat.app.domain.MemoryExtraction
 import kotlinx.serialization.json.Json
 
@@ -17,8 +18,10 @@ class MemoryExtractor(
 ) {
     private val json = Json { ignoreUnknownKeys = true; isLenient = true }
 
-    /** Returns the proposed memory ops, or null on any failure / nothing to do. */
-    suspend fun extract(userText: String, assistantText: String?): MemoryExtraction? {
+    /** Returns the proposed memory ops, or null on any failure / nothing to do.
+     *  [recentUserTexts] are prior user turns (oldest→newest, latest excluded) so facts stated across
+     *  several messages aren't missed. */
+    suspend fun extract(userText: String, assistantText: String?, recentUserTexts: List<String> = emptyList()): MemoryExtraction? {
         if (userText.trim().length < MIN_USER_CHARS) return null
         val model = pickModel()
         if (!settings.hasKeyFor(model)) return null
@@ -34,6 +37,11 @@ class MemoryExtractor(
             append("已有的长期记忆（用于判断是否重复或需要更新；update 时务必填对应的 id）：\n").append(existingBlock)
             if (!assistantText.isNullOrBlank()) {
                 append("\n\n助手上一条回复（仅作上下文，绝不要从中抽取事实）：\n").append(assistantText.take(500))
+            }
+            val prior = recentUserTexts.filter { it.isNotBlank() }.takeLast(3)
+            if (prior.isNotEmpty()) {
+                append("\n\n用户最近的几条消息（仅作上下文，事实可能分散在多轮里）：")
+                prior.forEach { append("\n· ").append(it.take(300)) }
             }
             append("\n\n用户最新消息：\n").append(userText.take(1200))
         }
@@ -111,7 +119,7 @@ class MemoryExtractor(
             - 若是全新主题，用 op="add"。
             - 没有任何值得记的，ops 用空数组。
 
-            【类别】每条记忆都给一个简短的中文类别标签 category，从这些里挑最贴切的：个人信息、编码偏好、饮食、环境设备、目标计划、人际关系、其它。
+            【类别】每条记忆都给一个简短的中文类别标签 category，从这些里挑最贴切的：${MEMORY_CATEGORIES.joinToString("、")}。
 
             【标记相关记忆】另外返回 referencedIds —— 本次用户消息用到 / 相关的【已有记忆】的 id 列表（即使没有任何新增或更新也要给）；用来记录哪些记忆仍然有用。没有相关的就给空数组。
 

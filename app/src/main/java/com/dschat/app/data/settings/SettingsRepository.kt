@@ -115,6 +115,11 @@ class SettingsRepository(context: Context) {
     private val _autoMemoryEnabled = MutableStateFlow(prefs.getBoolean(KEY_AUTO_MEMORY, true))
     val autoMemoryEnabled: StateFlow<Boolean> = _autoMemoryEnabled.asStateFlow()
 
+    // Review mode: when ON, auto-captured memories start as `pending` and must be confirmed before
+    // they're injected. Default OFF → silent capture (current behavior).
+    private val _autoMemoryReview = MutableStateFlow(prefs.getBoolean(KEY_MEMORY_REVIEW, false))
+    val autoMemoryReview: StateFlow<Boolean> = _autoMemoryReview.asStateFlow()
+
     private val _watchedApps = MutableStateFlow(
         prefs.getString(KEY_WATCHED, null)?.split("\n")?.filter { it.isNotBlank() }?.toSet()
             ?: setOf("com.tencent.mm")
@@ -422,30 +427,122 @@ class SettingsRepository(context: Context) {
         saveMemories(_memories.value.map { if (it.id == id) it.copy(enabled = enabled) else it })
     }
 
+    fun setMemoryPinned(id: Long, pinned: Boolean) {
+        saveMemories(_memories.value.map { if (it.id == id) it.copy(pinned = pinned) else it })
+    }
+
+    /** Confirm a pending auto-memory so it starts being injected. */
+    fun confirmMemory(id: Long) {
+        saveMemories(_memories.value.map { if (it.id == id) it.copy(pending = false) else it })
+    }
+
+    /** Reject a pending (or any) memory — same as delete; named for the review UI. */
+    fun rejectMemory(id: Long) = deleteMemory(id)
+
+    /** Batch enable/disable in a single write. */
+    fun setMemoriesEnabled(ids: Set<Long>, enabled: Boolean) {
+        if (ids.isEmpty()) return
+        saveMemories(_memories.value.map { if (it.id in ids) it.copy(enabled = enabled) else it })
+    }
+
+    /** Batch delete in a single write. */
+    fun deleteMemories(ids: Set<Long>) {
+        if (ids.isEmpty()) return
+        saveMemories(_memories.value.filterNot { it.id in ids })
+    }
+
     fun getMemory(id: Long): MemoryItem? = _memories.value.firstOrNull { it.id == id }
 
-    /** Builds the text block of all enabled memories, grouped by [类别] tags, injected into context. */
+    /** Builds the text block of all enabled memories, grouped by [类别] tags. Kept for callers that
+     *  want the full set; per-turn injection should prefer [selectMemoriesForContext]. */
     fun enabledMemoriesText(): String {
-        val active = _memories.value.filter { it.enabled && it.content.isNotBlank() }
-        if (active.isEmpty()) return ""
-        val byCat = active.groupBy { it.category.trim().ifBlank { "其它" } }
+        val active = _memories.value.filter { it.enabled && !it.pending && it.content.isNotBlank() }
+        return if (active.isEmpty()) "" else formatMemoryBlock(active)
+    }
+
+    /** Picks the memories relevant to [query] within an injection budget, instead of always injecting
+     *  every memory. Returns (grouped text block, ids actually injected). Small libraries inject
+     *  everything (no behavior change); large ones rank by keyword overlap + category hit, always
+     *  keeping pinned / identity / communication-style memories. */
+    fun selectMemoriesForContext(query: String): Pair<String, List<Long>> {
+        val active = _memories.value.filter { it.enabled && !it.pending && it.content.isNotBlank() }
+        if (active.isEmpty()) return "" to emptyList()
+
+        val chosen: List<MemoryItem> = if (active.size <= RELEVANCE_THRESHOLD) {
+            active
+        } else {
+            // Always inject: pinned + broadly-relevant identity/communication facts.
+            val always = active.filter { it.pinned || it.category == "个人信息" || it.category == "沟通偏好" }
+            val alwaysSet = always.toHashSet()
+            val rest = active.filterNot { it in alwaysSet }
+            val qTokens = tokenize(query)
+            val ranked = rest.map { it to scoreMemory(it, qTokens) }
+                .sortedWith(compareByDescending<Pair<MemoryItem, Int>> { it.second }.thenByDescending { recencyOf(it.first) })
+
+            val picked = ArrayList(always)
+            var budget = MAX_INJECT_CHARS - always.sumOf { injectCost(it) }
+            for ((m, score) in ranked) {
+                if (score <= 0) continue                 // unrelated to this query → skip
+                val cost = injectCost(m)
+                if (cost > budget) continue
+                picked += m; budget -= cost
+            }
+            // Blank/no-overlap query and nothing always-injected → fall back to the most recent few.
+            if (picked.isEmpty()) picked += rest.sortedByDescending { recencyOf(it) }.take(5)
+            picked
+        }
+        if (chosen.isEmpty()) return "" to emptyList()
+        return formatMemoryBlock(chosen) to chosen.map { it.id }
+    }
+
+    private fun injectCost(m: MemoryItem): Int = m.title.length + m.content.length + 6
+
+    /** Coarse token set: latin words (≥2 chars) + CJK bigrams. Mirrors the dedup normalization style. */
+    private fun tokenize(s: String): Set<String> {
+        val norm = s.lowercase()
+        val out = HashSet<String>()
+        Regex("[a-z0-9]+").findAll(norm).forEach { if (it.value.length >= 2) out += it.value }
+        val cjk = norm.filter { it.code in 0x4E00..0x9FFF }
+        for (i in 0 until cjk.length - 1) out += cjk.substring(i, i + 2)
+        return out
+    }
+
+    private fun scoreMemory(m: MemoryItem, qTokens: Set<String>): Int {
+        if (qTokens.isEmpty()) return 0
+        val mTokens = tokenize(m.title + " " + m.content)
+        var score = qTokens.count { it in mTokens }
+        if (m.category.isNotBlank() && qTokens.any { it.contains(m.category) || m.category.contains(it) }) score += 1
+        return score
+    }
+
+    private fun formatMemoryBlock(items: List<MemoryItem>): String {
+        val byCat = items.groupBy { it.category.trim().ifBlank { "其它" } }
         return buildString {
             append("以下是关于用户的长期记忆（按类别分组），请在回答时酌情参考（与当前问题无关时可忽略）：")
-            byCat.forEach { (cat, items) ->
+            byCat.forEach { (cat, list) ->
                 append("\n\n[").append(cat).append("]")
-                items.forEach { append("\n- ").append(it.content.trim()) }
+                list.forEach { append("\n- ").append(it.content.trim()) }
             }
         }
     }
 
     /** Apply the memory extractor's ops (add/update/skip) atomically: dedup adds, apply updates,
      *  then enforce count/char caps by pruning the oldest AUTO entries. Returns what changed. */
-    fun applyMemoryOps(ops: List<MemoryOp>): MemoryOpResult {
+    fun applyMemoryOps(ops: List<MemoryOp>, sourceConversationId: Long = 0L): MemoryOpResult {
         val added = mutableListOf<String>()
         val updated = mutableListOf<String>()
         val now = System.currentTimeMillis()
+        val review = _autoMemoryReview.value
         var list = _memories.value.toMutableList()
         var nextId = (list.maxOfOrNull { it.id } ?: 0L) + 1L
+
+        // New auto entry from an extractor op, tagged with source + (review→pending) state.
+        fun newAuto(op: MemoryOp, content: String) = MemoryItem(
+            id = nextId++, title = op.title.trim(), content = content, enabled = true, auto = true,
+            category = op.category.trim().ifBlank { inferCategory(op.title + " " + content) },
+            createdAt = now, updatedAt = now, lastReferencedAt = now,
+            sourceConversationId = sourceConversationId, pending = review
+        )
 
         for (op in ops) {
             val content = op.content.trim()
@@ -458,17 +555,18 @@ class SettingsRepository(context: Context) {
                             title = op.title.trim().ifBlank { list[idx].title },
                             content = content,
                             category = op.category.trim().ifBlank { list[idx].category }.ifBlank { inferCategory(op.title + " " + content) },
-                            updatedAt = now, lastReferencedAt = now
+                            updatedAt = now, lastReferencedAt = now,
+                            sourceConversationId = if (sourceConversationId != 0L) sourceConversationId else list[idx].sourceConversationId
                         )
                         updated += list[idx].title
                     } else if (!isDuplicate(list, content)) { // bad id from the model → treat as add
-                        list.add(MemoryItem(nextId++, op.title.trim(), content, enabled = true, auto = true, category = op.category.trim().ifBlank { inferCategory(op.title + " " + content) }, createdAt = now, updatedAt = now, lastReferencedAt = now))
+                        list.add(newAuto(op, content))
                         added += op.title.trim()
                     }
                 }
                 "add" -> {
                     if (isDuplicate(list, content)) continue
-                    list.add(MemoryItem(nextId++, op.title.trim(), content, enabled = true, auto = true, createdAt = now, updatedAt = now))
+                    list.add(newAuto(op, content))
                     added += op.title.trim()
                 }
                 else -> { /* skip */ }
@@ -500,11 +598,11 @@ class SettingsRepository(context: Context) {
         // Prune the least-recently-ACTIVE auto memory (created/updated/referenced), not just the oldest —
         // so a frequently-relevant fact outlives a one-off that was captured once and never used again.
         while (list.size > MAX_MEMORIES) {
-            val victim = list.filter { it.auto }.minByOrNull { recencyOf(it) } ?: break
+            val victim = list.filter { it.auto && !it.pinned }.minByOrNull { recencyOf(it) } ?: break
             list.remove(victim)
         }
         while (injectedChars(list) > MAX_MEMORY_CHARS) {
-            val victim = list.filter { it.auto && it.enabled }.minByOrNull { recencyOf(it) } ?: break
+            val victim = list.filter { it.auto && it.enabled && !it.pinned }.minByOrNull { recencyOf(it) } ?: break
             list.remove(victim)
         }
         return list
@@ -581,6 +679,11 @@ class SettingsRepository(context: Context) {
     fun setAutoMemoryEnabled(enabled: Boolean) {
         _autoMemoryEnabled.value = enabled
         prefs.edit().putBoolean(KEY_AUTO_MEMORY, enabled).apply()
+    }
+
+    fun setAutoMemoryReview(enabled: Boolean) {
+        _autoMemoryReview.value = enabled
+        prefs.edit().putBoolean(KEY_MEMORY_REVIEW, enabled).apply()
     }
 
     fun setAppWatched(pkg: String, watched: Boolean) {
@@ -712,8 +815,14 @@ class SettingsRepository(context: Context) {
         private const val KEY_AMBIENT = "ambient_enabled"
         private const val KEY_AUTO_SCHEDULE = "auto_schedule_enabled"
         private const val KEY_AUTO_MEMORY = "auto_memory_enabled"
-        private const val MAX_MEMORIES = 40
-        private const val MAX_MEMORY_CHARS = 4000
+        private const val KEY_MEMORY_REVIEW = "auto_memory_review"
+        private const val MAX_MEMORIES = 80
+        // Storage safety cap on total enabled chars (decoupled from per-turn injection budget below).
+        private const val MAX_MEMORY_CHARS = 8000
+        // Per-turn injection budget used by relevance selection (≈ token budget for memories).
+        private const val MAX_INJECT_CHARS = 2000
+        // ≤ this many injectable candidates → inject everything (no filtering; preserves old behavior).
+        private const val RELEVANCE_THRESHOLD = 12
         private const val KEY_WATCHED = "watched_apps"
         private const val KEY_SCREENSHOTS = "watch_screenshots"
         private const val KEY_AUTOREPLY = "auto_reply_enabled"

@@ -22,6 +22,7 @@ import com.dschat.app.agent.ToolLimits
 import com.dschat.app.agent.enumProp
 import com.dschat.app.agent.strProp
 import com.dschat.app.data.settings.SettingsRepository
+import com.dschat.app.domain.MEMORY_CATEGORIES
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonObject
@@ -381,7 +382,7 @@ class SaveMemoryTool(private val settings: SettingsRepository) : Tool {
     override fun parameters() = objectSchema(
         "title" to strProp("记忆标题，如『关于我』"),
         "content" to strProp("记忆内容"),
-        "category" to enumProp("类别标签（可空）", listOf("个人信息", "编码偏好", "饮食", "环境设备", "目标计划", "人际关系", "其它")),
+        "category" to enumProp("类别标签（可空）", MEMORY_CATEGORIES),
         required = listOf("title", "content")
     )
 
