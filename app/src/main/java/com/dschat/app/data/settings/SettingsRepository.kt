@@ -120,6 +120,26 @@ class SettingsRepository(context: Context) {
     private val _autoMemoryReview = MutableStateFlow(prefs.getBoolean(KEY_MEMORY_REVIEW, false))
     val autoMemoryReview: StateFlow<Boolean> = _autoMemoryReview.asStateFlow()
 
+    // --- PC control (SSH) ---
+    // Master switch for "control PC" mode; while OFF the pc_ tools are hidden from the model.
+    private val _pcControlEnabled = MutableStateFlow(prefs.getBoolean(KEY_PC_CONTROL, false))
+    val pcControlEnabled: StateFlow<Boolean> = _pcControlEnabled.asStateFlow()
+    private val _pcHost = MutableStateFlow(prefs.getString(KEY_PC_HOST, "").orEmpty())
+    val pcHost: StateFlow<String> = _pcHost.asStateFlow()
+    private val _pcPort = MutableStateFlow(prefs.getInt(KEY_PC_PORT, 22))
+    val pcPort: StateFlow<Int> = _pcPort.asStateFlow()
+    private val _pcUser = MutableStateFlow(prefs.getString(KEY_PC_USER, "").orEmpty())
+    val pcUser: StateFlow<String> = _pcUser.asStateFlow()
+    // "wifi" or "usb" — only affects IP guidance/auto-detect in the UI; the SSH client is identical.
+    private val _pcTransport = MutableStateFlow(prefs.getString(KEY_PC_TRANSPORT, "wifi").orEmpty().ifBlank { "wifi" })
+    val pcTransport: StateFlow<String> = _pcTransport.asStateFlow()
+    private val _pcPublicKey = MutableStateFlow(prefs.getString(KEY_PC_PUBKEY, "").orEmpty())
+    val pcPublicKey: StateFlow<String> = _pcPublicKey.asStateFlow()
+    private val _pcPrivateKey = MutableStateFlow(prefs.getString(KEY_PC_PRIVKEY, "").orEmpty())
+    val pcPrivateKey: StateFlow<String> = _pcPrivateKey.asStateFlow()
+    private val _pcHostKey = MutableStateFlow(prefs.getString(KEY_PC_HOSTKEY, "").orEmpty())
+    val pcHostKey: StateFlow<String> = _pcHostKey.asStateFlow()
+
     private val _watchedApps = MutableStateFlow(
         prefs.getString(KEY_WATCHED, null)?.split("\n")?.filter { it.isNotBlank() }?.toSet()
             ?: setOf("com.tencent.mm")
@@ -686,6 +706,18 @@ class SettingsRepository(context: Context) {
         prefs.edit().putBoolean(KEY_MEMORY_REVIEW, enabled).apply()
     }
 
+    // --- PC control setters ---
+    fun setPcControlEnabled(v: Boolean) { _pcControlEnabled.value = v; prefs.edit().putBoolean(KEY_PC_CONTROL, v).apply() }
+    fun setPcHost(v: String) { val t = v.trim(); _pcHost.value = t; prefs.edit().putString(KEY_PC_HOST, t).apply() }
+    fun setPcPort(v: Int) { _pcPort.value = v; prefs.edit().putInt(KEY_PC_PORT, v).apply() }
+    fun setPcUser(v: String) { val t = v.trim(); _pcUser.value = t; prefs.edit().putString(KEY_PC_USER, t).apply() }
+    fun setPcTransport(v: String) { _pcTransport.value = v; prefs.edit().putString(KEY_PC_TRANSPORT, v).apply() }
+    fun setPcKeyPair(priv: String, pub: String) {
+        _pcPrivateKey.value = priv; _pcPublicKey.value = pub
+        prefs.edit().putString(KEY_PC_PRIVKEY, priv).putString(KEY_PC_PUBKEY, pub).apply()
+    }
+    fun setPcHostKey(v: String) { _pcHostKey.value = v; prefs.edit().putString(KEY_PC_HOSTKEY, v).apply() }
+
     fun setAppWatched(pkg: String, watched: Boolean) {
         val set = _watchedApps.value.toMutableSet()
         if (watched) set.add(pkg) else set.remove(pkg)
@@ -816,6 +848,14 @@ class SettingsRepository(context: Context) {
         private const val KEY_AUTO_SCHEDULE = "auto_schedule_enabled"
         private const val KEY_AUTO_MEMORY = "auto_memory_enabled"
         private const val KEY_MEMORY_REVIEW = "auto_memory_review"
+        private const val KEY_PC_CONTROL = "pc_control_enabled"
+        private const val KEY_PC_HOST = "pc_host"
+        private const val KEY_PC_PORT = "pc_port"
+        private const val KEY_PC_USER = "pc_user"
+        private const val KEY_PC_TRANSPORT = "pc_transport"
+        private const val KEY_PC_PUBKEY = "pc_public_key"
+        private const val KEY_PC_PRIVKEY = "pc_private_key"
+        private const val KEY_PC_HOSTKEY = "pc_host_key"
         private const val MAX_MEMORIES = 80
         // Storage safety cap on total enabled chars (decoupled from per-turn injection budget below).
         private const val MAX_MEMORY_CHARS = 8000

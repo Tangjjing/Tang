@@ -19,6 +19,12 @@ import com.dschat.app.agent.tools.ListFilesTool
 import com.dschat.app.agent.tools.LocationTool
 import com.dschat.app.agent.tools.OpenAppTool
 import com.dschat.app.agent.tools.OpenUrlTool
+import com.dschat.app.agent.tools.PcDownloadFileTool
+import com.dschat.app.agent.tools.PcListDirTool
+import com.dschat.app.agent.tools.PcReadFileTool
+import com.dschat.app.agent.tools.PcRunTool
+import com.dschat.app.agent.tools.PcUploadFileTool
+import com.dschat.app.agent.tools.PcWriteFileTool
 import com.dschat.app.agent.tools.ReadFileTool
 import com.dschat.app.agent.tools.ReadMemoryTool
 import com.dschat.app.agent.tools.RunJavascriptTool
@@ -31,9 +37,10 @@ import com.dschat.app.agent.tools.ShareTextTool
 import com.dschat.app.agent.tools.WebSearchTool
 import com.dschat.app.agent.tools.WriteFileTool
 import com.dschat.app.data.settings.SettingsRepository
+import com.dschat.app.pc.PcBridge
 import kotlinx.serialization.json.JsonObject
 
-class ToolRegistry(context: Context, private val settings: SettingsRepository) {
+class ToolRegistry(context: Context, private val settings: SettingsRepository, pcBridge: PcBridge) {
 
     private val app = context.applicationContext
 
@@ -52,12 +59,20 @@ class ToolRegistry(context: Context, private val settings: SettingsRepository) {
         SetReminderTool(app), SendNotificationTool(app),
         // permissioned
         LocationTool(app), CalendarReadTool(app), CalendarCreateTool(app),
-        ContactsTool(app), SetAlarmTool(app)
+        ContactsTool(app), SetAlarmTool(app),
+        // PC control (SSH) — only surfaced to the model when control mode is on
+        PcRunTool(pcBridge), PcListDirTool(pcBridge), PcReadFileTool(pcBridge),
+        PcWriteFileTool(pcBridge), PcUploadFileTool(pcBridge), PcDownloadFileTool(pcBridge)
     )
 
     val allTools: List<Tool> get() = all
 
-    fun enabled(): List<Tool> = all.filter { settings.isToolEnabled(it.name) }
+    fun enabled(): List<Tool> = all.filter { t ->
+        if (!settings.isToolEnabled(t.name)) return@filter false
+        // Hide PC-control tools entirely unless the user has turned on control mode.
+        if (t.name.startsWith("pc_") && !settings.pcControlEnabled.value) return@filter false
+        true
+    }
 
     /** tools[] for the API, or null if none enabled. */
     fun apiSchemas(): List<JsonObject>? = enabled().takeIf { it.isNotEmpty() }?.map { it.toApiSchema() }

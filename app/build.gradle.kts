@@ -113,4 +113,7 @@ dependencies {
 
     // Background periodic work for the proactive weather monitor (survives reboot + Doze).
     implementation("androidx.work:work-runtime-ktx:2.9.1")
+
+    // SSH/SFTP client for "control PC" mode (maintained JSch fork; modern algos, key gen, Android-friendly).
+    implementation("com.github.mwiede:jsch:0.2.21")
 }

@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Chat
+import androidx.compose.material.icons.filled.Computer
 import androidx.compose.material.icons.filled.DataUsage
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Memory
@@ -39,7 +40,8 @@ fun SettingsScreen(
     onOpenUsage: () -> Unit,
     onOpenPermissions: () -> Unit,
     onOpenChatParams: () -> Unit,
-    onOpenWeather: () -> Unit
+    onOpenWeather: () -> Unit,
+    onOpenPc: () -> Unit
 ) {
     val theme by viewModel.theme.collectAsStateWithLifecycle()
 
@@ -48,6 +50,7 @@ fun SettingsScreen(
         NavRow(Icons.Default.SmartToy, "Agent（工具调用）", "执行模式、搜索后端、是否用 Pro", onOpenAgent)
         NavRow(Icons.Default.Notifications, "通知助理", "把通知 / 截图自动变成待办与提醒", onOpenNotify)
         NavRow(Icons.Default.WbSunny, "天气", "实时天气工具 + 早间恶劣天气/突变提醒", onOpenWeather)
+        NavRow(Icons.Default.Computer, "电脑连接", "用 SSH 在电脑上执行命令 / 读写、互传文件", onOpenPc)
         NavRow(Icons.AutoMirrored.Filled.Chat, "对话设置", "温度、全局系统提示词", onOpenChatParams)
         NavRow(Icons.Default.Memory, "记忆", "让模型长期记住的信息", onOpenMemory)
         NavRow(Icons.Default.DataUsage, "用量统计", "各模型的 token 消耗", onOpenUsage)

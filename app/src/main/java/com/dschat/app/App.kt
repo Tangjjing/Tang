@@ -17,6 +17,7 @@ import com.dschat.app.data.local.AppDatabase
 import com.dschat.app.data.remote.DeepSeekApi
 import com.dschat.app.data.repository.ChatRepository
 import com.dschat.app.data.settings.SettingsRepository
+import com.dschat.app.pc.PcBridge
 
 /** Manual dependency container (no Hilt — keeps the build simple and fast). */
 class AppContainer(context: Context) {
@@ -24,7 +25,8 @@ class AppContainer(context: Context) {
     private val database = AppDatabase.get(context)
     private val api = DeepSeekApi()
     val chatRepository = ChatRepository(database.chatDao(), api, settings)
-    val toolRegistry = ToolRegistry(context, settings)
+    val pcBridge = PcBridge(settings)
+    val toolRegistry = ToolRegistry(context, settings, pcBridge)
     val memoryExtractor = MemoryExtractor(api, settings)
     private val taskClassifier = TaskClassifier(api, settings)
     val taskRepository = TaskRepository(context.applicationContext, database.taskDao(), taskClassifier, settings)

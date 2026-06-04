@@ -28,6 +28,8 @@ import com.dschat.app.ui.memory.MemoryListScreen
 import com.dschat.app.ui.memory.MemoryViewModel
 import com.dschat.app.ui.models.ModelsScreen
 import com.dschat.app.ui.models.ModelsViewModel
+import com.dschat.app.ui.pc.PcConnectionScreen
+import com.dschat.app.ui.pc.PcViewModel
 import com.dschat.app.ui.settings.AgentSettingsScreen
 import com.dschat.app.ui.settings.ChatParamsScreen
 import com.dschat.app.ui.settings.NotifyAssistantScreen
@@ -113,7 +115,8 @@ private fun AppNavHost() {
                 onOpenUsage = { navController.navigate("usage") },
                 onOpenPermissions = { navController.navigate("permissions") },
                 onOpenChatParams = { navController.navigate("chatParams") },
-                onOpenWeather = { navController.navigate("weather") }
+                onOpenWeather = { navController.navigate("weather") },
+                onOpenPc = { navController.navigate("pcConnection") }
             )
         }
         composable("agentSettings") {
@@ -131,6 +134,10 @@ private fun AppNavHost() {
         composable("weather") {
             val vm: SettingsViewModel = viewModel(factory = AppViewModelProvider.Factory)
             WeatherScreen(viewModel = vm, onBack = { navController.popBackStack() })
+        }
+        composable("pcConnection") {
+            val vm: PcViewModel = viewModel(factory = AppViewModelProvider.Factory)
+            PcConnectionScreen(viewModel = vm, onBack = { navController.popBackStack() })
         }
         composable("permissions") {
             PermissionsScreen(onBack = { navController.popBackStack() })
