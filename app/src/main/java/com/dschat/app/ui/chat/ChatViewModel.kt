@@ -36,6 +36,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
@@ -434,8 +435,19 @@ class ChatViewModel(
                 }
             }
             val outcomes = if (calls.size > 1 && !needsAnyConfirm) {
+                // checkRepeat=false in parallel: repeatCounts (a plain HashMap) isn't safe for concurrent
+                // mutation. Each child catches its own failure so one crash can't drop the whole batch.
                 coroutineScope {
-                    calls.map { tc -> async { resolveCall(tc, repeatCounts, checkRepeat = false, allowConfirm = false) } }.awaitAll()
+                    calls.map { tc ->
+                        async {
+                            try {
+                                resolveCall(tc, repeatCounts, checkRepeat = false, allowConfirm = false)
+                            } catch (e: Exception) {
+                                val msg = "工具执行出错：${e.message}"
+                                ToolOutcome(msg, ToolStatus.ERROR, null, msg + "（请换一种方式或稍后再试）")
+                            }
+                        }
+                    }.awaitAll()
                 }
             } else {
                 calls.map { tc -> resolveCall(tc, repeatCounts, checkRepeat = true, allowConfirm = true) }
@@ -564,7 +576,7 @@ class ChatViewModel(
             ?: return ToolOutcome("未知工具：${tc.function.name}", ToolStatus.ERROR, null)
 
         if (checkRepeat) {
-            val sig = tc.function.name + "|" + tc.function.arguments.hashCode()
+            val sig = tc.function.name + "|" + normalizeArgs(tc.function.arguments)
             val n = (repeatCounts[sig] ?: 0) + 1
             repeatCounts[sig] = n
             if (n >= 3) {
@@ -602,18 +614,31 @@ class ChatViewModel(
         }
         val t0 = System.currentTimeMillis()
         var thrown: Throwable? = null
+        var timedOut = false
         val result = try {
-            tool.execute(args)
+            // Cap any single tool at TOOL_TIMEOUT_MS so one hung tool can't freeze the whole turn.
+            withTimeoutOrNull(TOOL_TIMEOUT_MS) { tool.execute(args) }
+                ?: run { timedOut = true; "工具执行超时（超过 ${TOOL_TIMEOUT_MS / 1000} 秒未返回，已中断）。请改用更轻量的方式或缩小范围后重试。" }
         } catch (e: Exception) {
             thrown = e
             "工具执行出错：${e.message}"
         }
         val dur = System.currentTimeMillis() - t0
-        val isErr = thrown != null || result.startsWith("错误") || result.startsWith("工具执行出错")
+        val isErr = thrown != null || timedOut || result.startsWith("错误") || result.startsWith("工具执行出错")
         val status = if (isErr) ToolStatus.ERROR else ToolStatus.DONE
         // Feedback (to the model) gets an actionable, categorized hint; the UI card keeps the raw result.
         val feedback = if (isErr) result + errHint(result, thrown) else result
         return ToolOutcome(result, status, dur, feedback)
+    }
+
+    /** Canonicalize tool args for repeat-detection: sort JSON keys so `{a,b}` and `{b,a}` match,
+     *  and ignore whitespace — closes the easy "reorder params to dodge the dedup" loophole. */
+    private fun normalizeArgs(raw: String): String = try {
+        argJson.parseToJsonElement(raw).jsonObject.entries
+            .sortedBy { it.key }
+            .joinToString(",") { "${it.key}=${it.value}" }
+    } catch (_: Exception) {
+        raw.trim()
     }
 
     /** Classify a failed tool result and append a directive so the model recovers correctly. */
@@ -632,7 +657,8 @@ class ChatViewModel(
         val deferred = CompletableDeferred<Boolean>()
         confirmDeferred = deferred
         _uiState.update { it.copy(pendingTool = PendingTool(name, args)) }
-        val ok = deferred.await()
+        // Don't hang the whole turn waiting on the user — treat no response within the window as declined.
+        val ok = withTimeoutOrNull(CONFIRM_TIMEOUT_MS) { deferred.await() } ?: false
         _uiState.update { it.copy(pendingTool = null) }
         confirmDeferred = null
         return ok
@@ -716,6 +742,10 @@ class ChatViewModel(
 
     companion object {
         private const val MAX_AGENT_STEPS = 16
+        /** Hard cap on any single tool call so a hung tool can't freeze the turn. */
+        private const val TOOL_TIMEOUT_MS = 60_000L
+        /** How long to wait for the user to confirm a tool before treating it as declined. */
+        private const val CONFIRM_TIMEOUT_MS = 120_000L
         /** Min gap between auto-memory extractions (0 = run on every qualifying turn). */
         private const val AUTO_MEMORY_MIN_INTERVAL_MS = 0L
         private const val MAX_TOOL_RESULT_CHARS = 12000

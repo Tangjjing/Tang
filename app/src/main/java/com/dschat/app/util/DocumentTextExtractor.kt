@@ -41,24 +41,45 @@ object DocumentTextExtractor {
 
     // ---- OOXML (zip) helpers ----
 
-    /** Read every zip entry whose name matches [want] into a name→UTF-8-text map. */
+    // ZipBomb / OOM guards: a malicious OOXML could declare tiny compressed parts that inflate to GBs.
+    private const val MAX_ZIP_ENTRY_BYTES = 20_000_000  // per part
+    private const val MAX_ZIP_TOTAL_BYTES = 60_000_000  // across all wanted parts
+
+    /** Read every zip entry whose name matches [want] into a name→UTF-8-text map, with size caps. */
     private fun readZip(context: Context, uri: Uri, want: (String) -> Boolean): Map<String, String> {
         val map = LinkedHashMap<String, String>()
+        var total = 0L
         try {
             context.contentResolver.openInputStream(uri)?.use { ins ->
                 ZipInputStream(ins).use { zip ->
                     var e = zip.nextEntry
                     while (e != null) {
                         if (!e.isDirectory && want(e.name)) {
-                            map[e.name] = zip.readBytes().toString(Charsets.UTF_8)
+                            val bytes = readCapped(zip, MAX_ZIP_ENTRY_BYTES)
+                            map[e.name] = bytes.toString(Charsets.UTF_8)
+                            total += bytes.size
+                            if (total > MAX_ZIP_TOTAL_BYTES) break
                         }
                         e = zip.nextEntry
                     }
                 }
             }
         } catch (_: Exception) {
+        } catch (_: OutOfMemoryError) {
         }
         return map
+    }
+
+    /** Read at most [limit] bytes from [input] (the current zip entry), so an inflated part can't OOM. */
+    private fun readCapped(input: java.io.InputStream, limit: Int): ByteArray {
+        val out = java.io.ByteArrayOutputStream()
+        val buf = ByteArray(8192)
+        var n = input.read(buf)
+        while (n >= 0 && out.size() < limit) {
+            out.write(buf, 0, n)
+            n = input.read(buf)
+        }
+        return out.toByteArray()
     }
 
     private val WT = Regex("<w:t\\b[^>]*>(.*?)</w:t>", RegexOption.DOT_MATCHES_ALL)   // docx run

@@ -48,6 +48,8 @@ class ReadFileTool : Tool {
     }
 }
 
+private const val MAX_WRITE_CHARS = 2_000_000 // ~ a few MB; guards against the model filling storage
+
 class WriteFileTool : Tool {
     override val name = "write_file"
     override val description = "把文本写入文件（默认覆盖，可追加）。会自动创建上级目录。"
@@ -62,6 +64,9 @@ class WriteFileTool : Tool {
     override suspend fun execute(args: JsonObject): String = withContext(Dispatchers.IO) {
         val f = resolvePath(args.str("path"))
         val content = args.str("content")
+        if (content.length > MAX_WRITE_CHARS) {
+            return@withContext "错误：内容过大（${content.length} 字符，上限 $MAX_WRITE_CHARS）。请分批写入或精简后再写。"
+        }
         val append = args.boolOr("append", false)
         try {
             f.parentFile?.mkdirs()

@@ -49,11 +49,19 @@ object ImageTextExtractor {
 
     private fun decode(dataUrl: String): Bitmap? = try {
         val b64 = dataUrl.substringAfter("base64,", dataUrl)
-        val bytes = Base64.decode(b64, Base64.DEFAULT)
-        BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+        // Cap input so a giant data URL can't OOM the process during decode (~9MB of image bytes).
+        if (b64.length > MAX_B64_CHARS) null
+        else {
+            val bytes = Base64.decode(b64, Base64.DEFAULT)
+            BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+        }
     } catch (e: Exception) {
         null
+    } catch (e: OutOfMemoryError) {
+        null
     }
+
+    private const val MAX_B64_CHARS = 12_000_000
 
     private suspend fun <T> Task<T>.awaitResult(): T = suspendCancellableCoroutine { cont ->
         addOnSuccessListener { cont.resume(it) }

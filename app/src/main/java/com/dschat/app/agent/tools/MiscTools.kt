@@ -45,6 +45,10 @@ private class SafeJsFactory : org.mozilla.javascript.ContextFactory() {
         cx.optimizationLevel = -1 // interpreted mode (required on Android) — enables instruction observing
         cx.instructionObserverThreshold = 20000
         cx.maximumInterpreterStackDepth = 1000 // guard runaway recursion
+        // Deny ALL Java class access from scripts. This is a calculator sandbox — pure JS (Math/JSON/
+        // String) needs no Java interop, and blocking it shuts the door on java.lang.Runtime.exec(...)
+        // & reflection, so a prompt-injected page/doc can't turn run_javascript into code execution.
+        cx.setClassShutter(org.mozilla.javascript.ClassShutter { _ -> false })
         return cx
     }
 
