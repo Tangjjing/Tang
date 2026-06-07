@@ -12,7 +12,7 @@ import androidx.compose.material.icons.filled.Computer
 import androidx.compose.material.icons.filled.DataUsage
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Memory
-import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.NotificationsActive
 import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.WbSunny
@@ -46,13 +46,18 @@ fun SettingsScreen(
     val theme by viewModel.theme.collectAsStateWithLifecycle()
 
     SettingsSubScreen("设置", onBack) {
+        SectionTitle("模型与对话")
         NavRow(Icons.Default.Tune, "模型管理", "增删模型，为每个模型填接口地址与 Key", onOpenModels)
-        NavRow(Icons.Default.SmartToy, "Agent（工具调用）", "执行模式、搜索后端、是否用 Pro", onOpenAgent)
-        NavRow(Icons.Default.Notifications, "通知助理", "把通知 / 截图自动变成待办与提醒", onOpenNotify)
-        NavRow(Icons.Default.WbSunny, "天气", "实时天气工具 + 早间恶劣天气/突变提醒", onOpenWeather)
-        NavRow(Icons.Default.Computer, "电脑连接", "用 SSH 在电脑上执行命令 / 读写、互传文件", onOpenPc)
         NavRow(Icons.AutoMirrored.Filled.Chat, "对话设置", "温度、全局系统提示词", onOpenChatParams)
         NavRow(Icons.Default.Memory, "记忆", "让模型长期记住的信息", onOpenMemory)
+
+        SectionTitle("智能助理")
+        NavRow(Icons.Default.SmartToy, "Agent（工具调用）", "执行模式、搜索后端、是否用 Pro", onOpenAgent)
+        NavRow(Icons.Default.NotificationsActive, "通知助理", "把通知 / 截图自动变成待办与提醒", onOpenNotify)
+        NavRow(Icons.Default.WbSunny, "天气", "实时天气工具 + 早间恶劣天气/突变提醒", onOpenWeather)
+        NavRow(Icons.Default.Computer, "电脑连接", "用 SSH 在电脑上执行命令 / 读写、互传文件", onOpenPc)
+
+        SectionTitle("数据与权限")
         NavRow(Icons.Default.DataUsage, "用量统计", "各模型的 token 消耗", onOpenUsage)
         NavRow(Icons.Default.Lock, "权限", "文件 / 定位 / 日历 / 通讯录 / 通知", onOpenPermissions)
 
@@ -65,7 +70,7 @@ fun SettingsScreen(
 
         HorizontalDivider(Modifier.padding(top = 8.dp))
         Text(
-            "Tang · by Lxl · v2.2 · 多模型 AI 助手 · 数据仅存本机",
+            "Tang · by Lxl · v2.3 · 多模型 AI 助手 · 数据仅存本机",
             fontSize = 11.sp,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )

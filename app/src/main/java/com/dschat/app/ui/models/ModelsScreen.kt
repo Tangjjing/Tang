@@ -2,7 +2,10 @@
 
 package com.dschat.app.ui.models
 
+import android.content.Intent
+import android.net.Uri
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -44,6 +47,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -170,6 +174,42 @@ fun ModelsScreen(viewModel: ModelsViewModel, onBack: () -> Unit) {
     }
 }
 
+/** "本应用不含额度，需自备 Key" note + tappable links to each provider's API-key console. */
+@Composable
+private fun KeyHelpLinks() {
+    val context = LocalContext.current
+    fun open(url: String) = try {
+        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+    } catch (_: Exception) {
+    }
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(
+            "本应用不含模型额度，需自备各家 API Key（一般按用量付费）。没有 Key？点下面去申请：",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            listOf(
+                "DeepSeek" to "https://platform.deepseek.com/api_keys",
+                "Kimi" to "https://platform.moonshot.cn/console/api-keys",
+                "智谱" to "https://open.bigmodel.cn/usercenter/apikeys",
+                "OpenRouter" to "https://openrouter.ai/keys"
+            ).forEach { (label, url) ->
+                Text(
+                    label,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.clickable { open(url) }
+                )
+            }
+        }
+    }
+}
+
 @Composable
 private fun AddProviderDialog(
     onDismiss: () -> Unit,
@@ -191,9 +231,10 @@ private fun AddProviderDialog(
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+                KeyHelpLinks()
             }
         },
-        confirmButton = { TextButton(onClick = { onConfirm(name, url, key) }, enabled = url.isNotBlank()) { Text("拉取并添加") } },
+        confirmButton = { TextButton(onClick = { onConfirm(name, url, key) }, enabled = url.isNotBlank() && key.isNotBlank()) { Text("拉取并添加") } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } }
     )
 }
@@ -311,6 +352,7 @@ private fun ModelEditDialog(
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+                KeyHelpLinks()
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("标记为推理模型（显示思维链）", modifier = Modifier.weight(1f), fontSize = 14.sp)
                     Switch(checked = reasoning, onCheckedChange = { reasoning = it })

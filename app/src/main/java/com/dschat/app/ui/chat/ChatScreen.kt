@@ -86,6 +86,7 @@ import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -107,6 +108,9 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -308,6 +312,21 @@ fun ChatScreen(
             onSave = { viewModel.setConversationSystemPrompt(it); showPromptDialog = false }
         )
     }
+
+    if (state.showApiKeyPrompt) {
+        AlertDialog(
+            onDismissRequest = { viewModel.dismissApiKeyPrompt() },
+            title = { Text("还没配置 API Key") },
+            text = {
+                Text(
+                    "「${state.currentModel.displayName}」还没有可用的 API Key。\n" +
+                        "Tang 本身不含模型额度，需要你自备各家的 Key（一般按用量付费）。现在去配置？"
+                )
+            },
+            confirmButton = { TextButton(onClick = { viewModel.dismissApiKeyPrompt(); onOpenModels() }) { Text("去配置") } },
+            dismissButton = { TextButton(onClick = { viewModel.dismissApiKeyPrompt() }) { Text("取消") } }
+        )
+    }
 }
 
 @Composable
@@ -391,11 +410,18 @@ private fun ModelSelector(
     fun prov(m: ChatModel) = m.provider.ifBlank { "其它" }
 
     Box {
-        // Compact pill: model name + a small chevron.
+        // Compact pill: model name + a small chevron. Touch target expanded to ≥48dp and exposed as a
+        // Button to TalkBack (the visual pill stays small).
         Surface(
             color = MaterialTheme.colorScheme.surfaceVariant,
             shape = CircleShape,
-            modifier = Modifier.clickable { open = true }
+            modifier = Modifier
+                .minimumInteractiveComponentSize()
+                .clickable { open = true }
+                .semantics(mergeDescendants = true) {
+                    role = androidx.compose.ui.semantics.Role.Button
+                    contentDescription = "切换模型，当前 ${model.displayName}"
+                }
         ) {
             Row(
                 modifier = Modifier.padding(start = 12.dp, end = 4.dp, top = 5.dp, bottom = 5.dp),
@@ -412,7 +438,7 @@ private fun ModelSelector(
                 )
                 Icon(
                     Icons.Default.KeyboardArrowDown,
-                    contentDescription = "切换模型",
+                    contentDescription = null, // decorative; the pill itself carries the button label
                     modifier = Modifier.size(18.dp),
                     tint = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -502,6 +528,7 @@ private fun HistoryDrawer(
     val surface = MaterialTheme.colorScheme.surface
     // Leave ~1/4 of the screen for the current conversation instead of a thin sliver.
     val drawerWidth = (LocalConfiguration.current.screenWidthDp * 0.76f).dp
+    var pendingDelete by remember { mutableStateOf<ConversationEntity?>(null) }
     ModalDrawerSheet(drawerContainerColor = surface, modifier = Modifier.width(drawerWidth)) {
         Row(
             modifier = Modifier
@@ -547,11 +574,11 @@ private fun HistoryDrawer(
                                 .weight(1f)
                                 .padding(vertical = 10.dp)
                         )
-                        IconButton(onClick = { onDelete(c.id) }, modifier = Modifier.size(34.dp)) {
+                        IconButton(onClick = { pendingDelete = c }, modifier = Modifier.size(40.dp)) {
                             Icon(
                                 Icons.Default.Delete,
-                                contentDescription = "删除",
-                                modifier = Modifier.size(15.dp),
+                                contentDescription = "删除会话「${c.title}」",
+                                modifier = Modifier.size(16.dp),
                                 tint = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
@@ -569,6 +596,16 @@ private fun HistoryDrawer(
         }
         DrawerRow(Icons.Default.Settings, "设置", onSettings)
         Spacer(Modifier.navigationBarsPadding())
+    }
+
+    pendingDelete?.let { conv ->
+        AlertDialog(
+            onDismissRequest = { pendingDelete = null },
+            title = { Text("删除这个对话？") },
+            text = { Text("「${conv.title}」将被永久删除，无法恢复。") },
+            confirmButton = { TextButton(onClick = { onDelete(conv.id); pendingDelete = null }) { Text("删除") } },
+            dismissButton = { TextButton(onClick = { pendingDelete = null }) { Text("取消") } }
+        )
     }
 }
 

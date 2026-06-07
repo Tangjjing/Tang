@@ -62,7 +62,8 @@ data class ChatUiState(
     val systemPromptOverride: String? = null,
     val pendingImage: String? = null,
     val pendingFileName: String? = null,
-    val pendingFileText: String? = null
+    val pendingFileText: String? = null,
+    val showApiKeyPrompt: Boolean = false
 )
 
 class ChatViewModel(
@@ -124,6 +125,7 @@ class ChatViewModel(
         send()
     }
     fun clearError() = _uiState.update { it.copy(errorMessage = null) }
+    fun dismissApiKeyPrompt() = _uiState.update { it.copy(showApiKeyPrompt = false) }
     fun attachImage(dataUrl: String) = _uiState.update { it.copy(pendingImage = dataUrl) }
     fun clearPendingImage() = _uiState.update { it.copy(pendingImage = null) }
     fun attachFile(name: String, text: String) = _uiState.update { it.copy(pendingFileName = name, pendingFileText = text) }
@@ -203,7 +205,8 @@ class ChatViewModel(
         val fileName = _uiState.value.pendingFileName
         if ((text.isEmpty() && image == null && fileText == null) || _uiState.value.isStreaming) return
         if (!settings.hasKeyFor(_uiState.value.currentModel.id)) {
-            _uiState.update { it.copy(errorMessage = "请先在「模型管理」里给「${_uiState.value.currentModel.displayName}」填写 API Key") }
+            // Actionable prompt (→「去配置」) instead of a transient snackbar the user can't act on.
+            _uiState.update { it.copy(showApiKeyPrompt = true) }
             return
         }
 

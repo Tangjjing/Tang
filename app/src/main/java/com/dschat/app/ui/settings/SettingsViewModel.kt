@@ -1,11 +1,22 @@
 package com.dschat.app.ui.settings
 
+import android.content.Context
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
 import com.dschat.app.agent.ExecutionMode
 import com.dschat.app.agent.SearchBackend
+import com.dschat.app.agent.tasks.WeatherApi
 import com.dschat.app.data.settings.SettingsRepository
 import com.dschat.app.data.settings.ThemeMode
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 class SettingsViewModel(private val settings: SettingsRepository) : ViewModel() {
 
@@ -68,4 +79,29 @@ class SettingsViewModel(private val settings: SettingsRepository) : ViewModel() 
     fun setWeatherCity(v: String) = settings.setWeatherCity(v)
     fun setWeatherMonitorEnabled(v: Boolean) = settings.setWeatherMonitorEnabled(v)
     fun setWeatherMorningHour(v: Int) = settings.setWeatherMorningHour(v)
+
+    // One-shot "check weather now" so the user can verify their key/city/location actually work
+    // (and that monitoring would have data), instead of waiting on the uncertain ~15min background job.
+    private val _weatherChecking = MutableStateFlow(false)
+    val weatherChecking: StateFlow<Boolean> = _weatherChecking.asStateFlow()
+    private val _weatherCheckResult = MutableStateFlow<String?>(null)
+    val weatherCheckResult: StateFlow<String?> = _weatherCheckResult.asStateFlow()
+
+    fun checkWeatherNow(ctx: Context) {
+        if (_weatherChecking.value) return
+        _weatherChecking.value = true
+        val appCtx = ctx.applicationContext // avoid holding the Activity in the VM-scoped coroutine
+        viewModelScope.launch {
+            val r = withContext(Dispatchers.IO) {
+                try { WeatherApi.fetch(appCtx, settings, settings.weatherCity.value.ifBlank { null }, null, null, 1) }
+                catch (e: Exception) { null }
+            }
+            val time = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date())
+            _weatherCheckResult.value = if (r != null)
+                "上次检查 $time：${r.place} ${r.nowText} ${r.nowTemp}°（${r.todayMin}~${r.todayMax}°）" +
+                    (if (r.aqi >= 0) " · AQI ${r.aqi}" else "") + (r.warning?.let { " · ⚠️$it" } ?: "")
+            else "上次检查 $time：未取到天气（请检查城市 / 定位 / 网络，或填和风 Key）"
+            _weatherChecking.value = false
+        }
+    }
 }

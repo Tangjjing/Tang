@@ -97,7 +97,11 @@ private fun AppNavHost() {
         }
         composable("tasks") {
             val vm: TasksViewModel = viewModel(factory = AppViewModelProvider.Factory)
-            TasksScreen(viewModel = vm, onBack = { navController.popBackStack() })
+            TasksScreen(
+                viewModel = vm,
+                onBack = { navController.popBackStack() },
+                onOpenNotify = { navController.navigate("notifyAssistant") }
+            )
         }
         composable("usage") {
             val vm: UsageViewModel = viewModel(factory = AppViewModelProvider.Factory)

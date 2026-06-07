@@ -51,7 +51,7 @@ import java.util.Date
 import java.util.Locale
 
 @Composable
-fun TasksScreen(viewModel: TasksViewModel, onBack: () -> Unit) {
+fun TasksScreen(viewModel: TasksViewModel, onBack: () -> Unit, onOpenNotify: () -> Unit = {}) {
     val tasks by viewModel.tasks.collectAsStateWithLifecycle()
     val toast by viewModel.toast.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
@@ -90,11 +90,13 @@ fun TasksScreen(viewModel: TasksViewModel, onBack: () -> Unit) {
                     Text("还没有自动识别到的待办", color = MaterialTheme.colorScheme.onSurface)
                     Spacer(Modifier.size(4.dp))
                     Text(
-                        "到「设置 → 通知助理」开启后，重要通知会自动变成这里的任务",
+                        "开启「通知助理」后，重要通知会自动变成这里的任务",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         textAlign = TextAlign.Center
                     )
+                    Spacer(Modifier.size(12.dp))
+                    FilledTonalButton(onClick = onOpenNotify) { Text("去开启通知助理") }
                 }
             }
         } else {

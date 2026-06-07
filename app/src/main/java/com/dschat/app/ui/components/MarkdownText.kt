@@ -11,6 +11,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckBox
 import androidx.compose.material.icons.filled.CheckBoxOutlineBlank
 import androidx.compose.material.icons.filled.ContentCopy
@@ -248,6 +249,8 @@ private fun TableView(table: MdLine.Table, color: Color, codeBg: Color, linkColo
 @Composable
 private fun CodeBlock(lang: String?, code: String, codeBg: Color) {
     val clipboard = LocalClipboardManager.current
+    var copied by remember { mutableStateOf(false) }
+    LaunchedEffect(copied) { if (copied) { delay(1500); copied = false } }
     val theme = codeThemeFor(codeBg, MaterialTheme.colorScheme.onSurface)
     val highlighted = remember(code, lang, theme) { highlightCached(code, lang, theme) }
     Surface(color = codeBg, shape = RoundedCornerShape(10.dp), modifier = Modifier.fillMaxWidth()) {
@@ -262,12 +265,12 @@ private fun CodeBlock(lang: String?, code: String, codeBg: Color) {
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-                IconButton(onClick = { clipboard.setText(AnnotatedString(code)) }, modifier = Modifier.size(30.dp)) {
+                IconButton(onClick = { clipboard.setText(AnnotatedString(code)); copied = true }, modifier = Modifier.size(30.dp)) {
                     Icon(
-                        Icons.Default.ContentCopy,
-                        contentDescription = "复制代码",
+                        if (copied) Icons.Default.Check else Icons.Default.ContentCopy,
+                        contentDescription = if (copied) "已复制" else "复制代码",
                         modifier = Modifier.size(16.dp),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        tint = if (copied) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
             }

@@ -386,24 +386,27 @@ private fun ErrorBubble(text: String) {
 @Composable
 private fun CopyRow(content: String) {
     val clipboard = LocalClipboardManager.current
+    var copied by remember { mutableStateOf(false) }
+    LaunchedEffect(copied) { if (copied) { delay(1500); copied = false } }
+    val tint = if (copied) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
     Row(
         modifier = Modifier
             .padding(top = 2.dp)
             .clip(RoundedCornerShape(8.dp))
-            .clickable { clipboard.setText(AnnotatedString(content)) }
+            .clickable { clipboard.setText(AnnotatedString(content)); copied = true }
             .padding(horizontal = 4.dp, vertical = 3.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Icon(
-            Icons.Default.ContentCopy,
-            contentDescription = "复制",
+            if (copied) Icons.Default.Check else Icons.Default.ContentCopy,
+            contentDescription = if (copied) "已复制" else "复制",
             modifier = Modifier.size(13.dp),
-            tint = MaterialTheme.colorScheme.onSurfaceVariant
+            tint = tint
         )
         Text(
-            text = "  复制",
+            text = if (copied) "  已复制" else "  复制",
             fontSize = 11.sp,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
+            color = tint
         )
     }
 }
@@ -491,7 +494,7 @@ private fun GenInfoCaption(message: UiMessage) {
     Text(
         text = parts.joinToString(" · "),
         fontSize = 11.sp,
-        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
         modifier = Modifier.padding(top = 1.dp)
     )
 }

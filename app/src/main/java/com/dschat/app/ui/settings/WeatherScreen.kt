@@ -31,6 +31,8 @@ fun WeatherScreen(viewModel: SettingsViewModel, onBack: () -> Unit) {
     val hour by viewModel.weatherMorningHour.collectAsStateWithLifecycle()
     val qwKey by viewModel.qweatherKey.collectAsStateWithLifecycle()
     val qwHost by viewModel.qweatherHost.collectAsStateWithLifecycle()
+    val checking by viewModel.weatherChecking.collectAsStateWithLifecycle()
+    val checkResult by viewModel.weatherCheckResult.collectAsStateWithLifecycle()
     val context = LocalContext.current
 
     SettingsSubScreen("天气", onBack) {
@@ -69,6 +71,14 @@ fun WeatherScreen(viewModel: SettingsViewModel, onBack: () -> Unit) {
                 FilterChip(selected = hour == h, onClick = { viewModel.setWeatherMorningHour(h) }, label = { Text("%02d:00".format(h)) })
             }
         }
+
+        SectionTitle("测试")
+        OutlinedButton(
+            onClick = { viewModel.checkWeatherNow(context) },
+            enabled = !checking,
+            modifier = Modifier.fillMaxWidth()
+        ) { Text(if (checking) "检查中…" else "立即检查天气") }
+        checkResult?.let { Hint(it) }
 
         SectionTitle("后台天气监控")
         ToggleRow(

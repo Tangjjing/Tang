@@ -11,12 +11,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.dschat.app.agent.ExecutionMode
 
@@ -51,12 +53,21 @@ fun AgentSettingsScreen(viewModel: SettingsViewModel, onBack: () -> Unit) {
             Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 val labels = mapOf(
                     ExecutionMode.CONFIRM_ALL to "全部确认",
-                    ExecutionMode.CONFIRM_SIDE_EFFECTS to "仅副作用确认",
+                    ExecutionMode.CONFIRM_SIDE_EFFECTS to "仅副作用确认 ·推荐",
                     ExecutionMode.FULL_AUTO to "完全放权"
                 )
                 ExecutionMode.entries.forEach { m ->
                     FilterChip(selected = executionMode == m, onClick = { viewModel.setExecutionMode(m) }, label = { Text(labels[m] ?: m.label) })
                 }
+            }
+            Hint("· 全部确认：每次调用工具都先问你，最稳。\n· 仅副作用确认（推荐）：只在要改东西 / 发送 / 写文件时才问，读取类直接执行。\n· 完全放权：都不问、最快，但模型可不经确认直接读写文件、发请求、操作设备。")
+            if (executionMode == ExecutionMode.FULL_AUTO) {
+                Text(
+                    "⚠️ 已开启「完全放权」：模型可不经你确认直接读写文件、发请求、操作手机 / 电脑，请谨慎使用。",
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.error,
+                    lineHeight = 16.sp
+                )
             }
 
             SectionTitle("AI 搜索后端（用于联网查资料，非聊天模型）")
@@ -115,7 +126,6 @@ fun AgentSettingsScreen(viewModel: SettingsViewModel, onBack: () -> Unit) {
                 label = { Text("秘塔 Metaso 接口地址") }
             )
             Hint("留空会自动恢复默认地址。")
-            Hint("⚠️ 完全放权模式下，模型可不经确认直接读写文件、发请求等，请谨慎使用。")
         }
     }
 }

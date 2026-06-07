@@ -9,7 +9,7 @@ val LightBackground = Color(0xFFFFFFFF)
 val LightSurface = Color(0xFFFFFFFF)
 val LightSurfaceVariant = Color(0xFFF2F2F3)   // user bubble, cards, chips, code blocks
 val LightOnSurface = Color(0xFF1A1A1C)
-val LightOnSurfaceVariant = Color(0xFF7C7C82)
+val LightOnSurfaceVariant = Color(0xFF5F5F66)   // darkened to meet WCAG AA on white/灰卡 for small captions
 val LightOutline = Color(0xFFE4E4E7)
 val InkLight = Color(0xFF1A1A1C)              // primary: near-black (buttons, selected states)
 
