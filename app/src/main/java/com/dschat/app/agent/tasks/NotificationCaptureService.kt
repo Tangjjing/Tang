@@ -78,9 +78,12 @@ class NotificationCaptureService : NotificationListenerService() {
 
         // Diagnostic: does this app's notification carry an inline-reply RemoteInput? (Read via:
         // adb logcat -s ReplyDiag). Tells us whether one-tap send is even possible for e.g. WeChat.
+        // NOTE: never log the sender name or message body here — that would leak private content
+        // to logcat. Only metadata (package, action shape, whether a reply field exists).
         run {
-            val acts = n.actions?.joinToString("; ") { a -> "${a.title}(ri=${a.remoteInputs?.size ?: 0})" } ?: "none"
-            Log.d("ReplyDiag", "pkg=$pkg label=$label title=\"$title\" hadReply=$hadReply actions=[$acts]")
+            val actCount = n.actions?.size ?: 0
+            val withReply = n.actions?.count { (it.remoteInputs?.size ?: 0) > 0 } ?: 0
+            Log.d("ReplyDiag", "pkg=$pkg hadReply=$hadReply actions=$actCount replyActions=$withReply")
         }
 
         // A chat message looks like: title = sender (not just the app name) + a non-blank body.

@@ -42,13 +42,13 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Image
-import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.EditNote
 import androidx.compose.material.icons.filled.KeyboardArrowDown
@@ -445,7 +445,7 @@ private fun ModelSelector(
                                 modifier = Modifier.weight(1f)
                             )
                             Text("${models.count { prov(it) == p }}", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            Icon(Icons.Default.KeyboardArrowRight, null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
                     HorizontalDivider(Modifier.padding(vertical = 2.dp))
@@ -455,7 +455,7 @@ private fun ModelSelector(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text("管理 / 添加供应商", fontSize = 13.5.sp, color = MaterialTheme.colorScheme.primary, modifier = Modifier.weight(1f))
-                        Icon(Icons.Default.KeyboardArrowRight, null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 } else {
                     // Level 2: models within the chosen provider

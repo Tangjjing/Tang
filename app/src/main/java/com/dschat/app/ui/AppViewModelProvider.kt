@@ -19,6 +19,7 @@ object AppViewModelProvider {
     val Factory = viewModelFactory {
         initializer {
             ChatViewModel(
+                app(),
                 app().container.chatRepository,
                 app().container.settings,
                 app().container.toolRegistry,

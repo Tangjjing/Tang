@@ -1,7 +1,9 @@
 package com.dschat.app.ui.chat
 
+import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.dschat.app.TurnForegroundService
 import com.dschat.app.agent.ExecutionMode
 import com.dschat.app.agent.ToolRegistry
 import com.dschat.app.agent.tasks.MemoryExtractor
@@ -64,6 +66,7 @@ data class ChatUiState(
 )
 
 class ChatViewModel(
+    private val appContext: Context,
     private val repo: ChatRepository,
     private val settings: SettingsRepository,
     private val registry: ToolRegistry,
@@ -229,6 +232,10 @@ class ChatViewModel(
             }
             repo.touchConversation(conversationId)
 
+            // Keep the process alive for the whole turn so switching apps mid-answer doesn't let the
+            // ROM freeze us and kill the in-flight request (the "切后台被打断 + 红色报错" bug).
+            TurnForegroundService.start(appContext)
+
             // Fold any attachment (uploaded file text and/or local image OCR) into apiText so the
             // model receives it as plain text — works on all models, including text-only ones.
             val recognized = if (image != null && !model.vision) ImageTextExtractor.extract(image) else ""
@@ -256,6 +263,7 @@ class ChatViewModel(
                 // throws CancellationException above and skips this), so aborted turns aren't mined.
                 maybeCaptureMemory(conversationId)
             } finally {
+                TurnForegroundService.stop(appContext)
                 withContext(NonCancellable) {
                     _uiState.update { it.copy(isStreaming = false, pendingTool = null) }
                     confirmDeferred = null

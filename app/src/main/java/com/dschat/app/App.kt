@@ -37,6 +37,11 @@ class App : Application() {
     lateinit var container: AppContainer
         private set
 
+    companion object {
+        /** Low-importance channel for the "turn in progress" keep-alive foreground notification. */
+        const val CHANNEL_BUSY = "busy"
+    }
+
     override fun onCreate() {
         super.onCreate()
         container = AppContainer(this)
@@ -77,6 +82,13 @@ class App : Application() {
                 "天气提醒",
                 NotificationManager.IMPORTANCE_DEFAULT
             ).apply { description = "早间恶劣天气与天气突变提醒" }
+        )
+        nm.createNotificationChannel(
+            NotificationChannel(
+                CHANNEL_BUSY,
+                "处理中",
+                NotificationManager.IMPORTANCE_LOW
+            ).apply { description = "回复生成 / 联网查询进行中的保活提示（切后台不中断）" }
         )
     }
 }

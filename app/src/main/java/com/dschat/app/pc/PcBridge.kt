@@ -7,6 +7,8 @@ import com.jcraft.jsch.JSch
 import com.jcraft.jsch.KeyPair
 import com.jcraft.jsch.Session
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -128,13 +130,38 @@ class PcBridge(private val settings: SettingsRepository) {
             val err = ByteArrayOutputStream()
             ch.setErrStream(err)
             val input = ch.inputStream
-            ch.connect()
-            val out = input.readBytes() // reads until the channel closes (EOF)
-            var waited = 0
-            while (!ch.isClosed && waited < timeoutMs) { Thread.sleep(20); waited += 20 }
-            val code = ch.exitStatus
+            ch.connect(CONNECT_TIMEOUT_MS)
+            // Drain stdout incrementally against a wall-clock deadline. We must NOT use
+            // input.readBytes(): it blocks until EOF, so a long-running / hanging PC command would
+            // block forever — defeating timeoutMs AND holding [lock], freezing every other pc_ op.
+            // Polling available()+isClosed lets us bail out (and disconnect) when the deadline passes,
+            // and currentCoroutineContext().ensureActive() lets the outer tool-timeout actually cancel us.
+            val out = ByteArrayOutputStream()
+            val buf = ByteArray(8192)
+            val deadline = System.currentTimeMillis() + timeoutMs
+            var timedOut = false
+            while (true) {
+                currentCoroutineContext().ensureActive()
+                while (input.available() > 0) {
+                    val r = input.read(buf)
+                    if (r < 0) break
+                    out.write(buf, 0, r)
+                }
+                if (ch.isClosed) {
+                    if (input.available() > 0) continue // flush any trailing bytes
+                    break
+                }
+                if (System.currentTimeMillis() >= deadline) { timedOut = true; break }
+                Thread.sleep(20)
+            }
+            val code = if (timedOut) -1 else ch.exitStatus
             ch.disconnect()
-            ExecResult(out.toString(Charsets.UTF_8), err.toByteArray().toString(Charsets.UTF_8), code)
+            val stderr = err.toByteArray().toString(Charsets.UTF_8)
+            ExecResult(
+                out.toString(Charsets.UTF_8),
+                if (timedOut) (stderr + "\n（命令超时：超过 ${timeoutMs / 1000} 秒未结束，已中断。）").trim() else stderr,
+                code
+            )
         }
     }
 
