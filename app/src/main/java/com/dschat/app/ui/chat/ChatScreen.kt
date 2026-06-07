@@ -59,6 +59,7 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Tune
@@ -266,7 +267,14 @@ fun ChatScreen(
                             state.messages,
                             key = { it.id },
                             contentType = { if (it.tools != null) "tools" else if (it.role == Role.USER) "user" else "ai" }
-                        ) { MessageBubble(it, onManageMemory = onOpenMemory) }
+                        ) {
+                            MessageBubble(
+                                it,
+                                onManageMemory = onOpenMemory,
+                                onRegenerate = viewModel::regenerate,
+                                onEdit = viewModel::editMessage
+                            )
+                        }
                     }
                 }
 
@@ -290,17 +298,34 @@ fun ChatScreen(
     state.pendingTool?.let { pt ->
         AlertDialog(
             onDismissRequest = { viewModel.resolveTool(false) },
-            title = { Text("允许执行工具？") },
+            icon = if (pt.danger) {
+                { Icon(Icons.Default.Warning, contentDescription = null, tint = MaterialTheme.colorScheme.error) }
+            } else null,
+            title = { Text(if (pt.danger) "确认高风险操作？" else "允许执行操作？") },
             text = {
                 Column {
-                    Text("工具：${pt.name}", fontWeight = FontWeight.SemiBold)
+                    Text(pt.title, fontWeight = FontWeight.SemiBold)
+                    Text("工具：${pt.name}", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     if (pt.args.isNotBlank()) {
                         Spacer(Modifier.size(6.dp))
                         Text(pt.args, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
+                    if (pt.danger) {
+                        Spacer(Modifier.size(8.dp))
+                        Text(
+                            "⚠️ 此操作可能不可撤销（删除 / 写入 / 在电脑上执行命令 / 对外发请求），请确认后再允许。",
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.error,
+                            lineHeight = 16.sp
+                        )
+                    }
                 }
             },
-            confirmButton = { TextButton(onClick = { viewModel.resolveTool(true) }) { Text("允许") } },
+            confirmButton = {
+                TextButton(onClick = { viewModel.resolveTool(true) }) {
+                    Text("允许", color = if (pt.danger) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary)
+                }
+            },
             dismissButton = { TextButton(onClick = { viewModel.resolveTool(false) }) { Text("拒绝") } }
         )
     }

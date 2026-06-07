@@ -38,6 +38,14 @@ interface ChatDao {
     @Query("DELETE FROM conversations WHERE id = :id")
     suspend fun deleteConversation(id: Long)
 
+    /** Delete every message AFTER [afterId] in a conversation (keeps [afterId] itself). For 重新生成. */
+    @Query("DELETE FROM messages WHERE conversationId = :conversationId AND id > :afterId")
+    suspend fun deleteMessagesAfter(conversationId: Long, afterId: Long)
+
+    /** Delete [fromId] and every message after it in a conversation. For 编辑后重发. */
+    @Query("DELETE FROM messages WHERE conversationId = :conversationId AND id >= :fromId")
+    suspend fun deleteMessagesFrom(conversationId: Long, fromId: Long)
+
     @Query("SELECT COUNT(*) FROM messages WHERE conversationId = :conversationId")
     suspend fun messageCount(conversationId: Long): Int
 }

@@ -23,6 +23,7 @@ import com.dschat.app.domain.Role
 import com.dschat.app.domain.ToolRun
 import com.dschat.app.domain.ToolStatus
 import com.dschat.app.domain.UiMessage
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
@@ -43,7 +44,12 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
 
-data class PendingTool(val name: String, val args: String)
+data class PendingTool(
+    val name: String,
+    val args: String,
+    val title: String = name,      // human-readable purpose (tool description's first sentence)
+    val danger: Boolean = false    // irreversible / high-impact (delete, run on PC, write, network)
+)
 
 private data class ToolOutcome(val result: String, val status: ToolStatus, val dur: Long?, val feedback: String = result)
 
@@ -144,6 +150,10 @@ class ChatViewModel(
         confirmDeferred?.complete(approve)
     }
 
+    /** True if a turn is in flight. Checks streamJob (set synchronously) in addition to isStreaming
+     *  (set inside the launched coroutine) so a fast double-tap can't start two overlapping turns. */
+    private fun isBusy(): Boolean = _uiState.value.isStreaming || streamJob?.isActive == true
+
     fun newConversation() {
         stopStreaming()
         val def = settings.currentModel()
@@ -203,7 +213,7 @@ class ChatViewModel(
         val image = _uiState.value.pendingImage
         val fileText = _uiState.value.pendingFileText
         val fileName = _uiState.value.pendingFileName
-        if ((text.isEmpty() && image == null && fileText == null) || _uiState.value.isStreaming) return
+        if ((text.isEmpty() && image == null && fileText == null) || isBusy()) return
         if (!settings.hasKeyFor(_uiState.value.currentModel.id)) {
             // Actionable prompt (→「去配置」) instead of a transient snackbar the user can't act on.
             _uiState.update { it.copy(showApiKeyPrompt = true) }
@@ -274,6 +284,61 @@ class ChatViewModel(
                 }
             }
         }
+    }
+
+    /** Shared generation core (no user-message / attachment preamble) — used by 重新生成. Mirrors the
+     *  try/finally of send(): keep-alive service, isStreaming flag, post-turn memory. */
+    private suspend fun produceAnswer(conversationId: Long) {
+        val model = _uiState.value.currentModel
+        _uiState.update { it.copy(isStreaming = true, errorMessage = null) }
+        TurnForegroundService.start(appContext)
+        try {
+            val useAgent = settings.agentEnabled.value && registry.apiSchemas() != null
+            if (useAgent) runAgentLoop(conversationId, settings.agentModelId(model.id)) else runStream(conversationId, model.id)
+            maybeCaptureMemory(conversationId)
+        } finally {
+            TurnForegroundService.stop(appContext)
+            withContext(NonCancellable) {
+                _uiState.update { it.copy(isStreaming = false, pendingTool = null) }
+                confirmDeferred = null
+                repo.touchConversation(conversationId)
+            }
+        }
+    }
+
+    /** Regenerate the assistant answer at [messageId]: drop it (and anything after the preceding user
+     *  message — its tool cards, narration, etc.) and re-run generation from that user turn. */
+    fun regenerate(messageId: Long) {
+        if (isBusy()) return
+        val convId = _uiState.value.conversationId ?: return
+        if (!settings.hasKeyFor(_uiState.value.currentModel.id)) {
+            _uiState.update { it.copy(showApiKeyPrompt = true) }; return
+        }
+        val msgs = _uiState.value.messages
+        val idx = msgs.indexOfFirst { it.id == messageId }
+        if (idx < 0) return
+        val userIdx = (idx - 1 downTo 0).firstOrNull { msgs[it].role == Role.USER } ?: return
+        val userMsg = msgs[userIdx]
+        lastUserText = userMsg.content
+        _uiState.update { it.copy(messages = it.messages.take(userIdx + 1), errorMessage = null) }
+        streamJob = viewModelScope.launch {
+            if (userMsg.id > 0) repo.deleteMessagesAfter(convId, userMsg.id)
+            produceAnswer(convId)
+        }
+    }
+
+    /** Pull a user message back into the input box for editing; drops it and everything after, so the
+     *  user can tweak and re-send (discarding the old branch). */
+    fun editMessage(messageId: Long) {
+        if (isBusy()) return
+        val convId = _uiState.value.conversationId ?: return
+        val msgs = _uiState.value.messages
+        val idx = msgs.indexOfFirst { it.id == messageId }
+        if (idx < 0) return
+        val target = msgs[idx]
+        if (target.role != Role.USER) return
+        _uiState.update { it.copy(messages = it.messages.take(idx), input = target.content, errorMessage = null) }
+        if (target.id > 0) viewModelScope.launch { repo.deleteMessagesFrom(convId, target.id) }
     }
 
     // ---- plain streaming path ----
@@ -380,14 +445,22 @@ class ChatViewModel(
         var steps = 0
         var emptyStreak = 0
         var lastFinish: String? = null
+        // H1: track whether we persisted a final answer this turn + the model's last plan, so that on
+        // STOP / process-kill (CancellationException) we salvage something instead of "有问无答".
+        var answered = false
+        var lastNarration: String? = null
+        try {
         while (steps < MAX_AGENT_STEPS) {
             steps++
             val thinkId = addThinking()
             val assistant: AgentMessage = try {
                 repo.chatCompletion(modelId, history, registry.apiSchemas()) { lastFinish = it }
+            } catch (e: CancellationException) {
+                throw e // let Stop/kill fall through to the finally salvage (don't treat as an error)
             } catch (e: Exception) {
                 removeMessage(thinkId)
                 appendAssistantError(e.message ?: "请求失败")
+                answered = true
                 return
             }
             removeMessage(thinkId)
@@ -399,6 +472,7 @@ class ChatViewModel(
                 if (content.isBlank() && assistant.reasoningContent.isNullOrBlank()) {
                     if (++emptyStreak >= 2) {
                         finishAnswer(conversationId, "模型这次没有返回内容，请重试或换个说法。", null, System.currentTimeMillis() - loopStart)
+                        answered = true
                         return
                     }
                     history.add(AgentMessage(role = "user", content = "（系统提示：上一次回复为空。请直接基于已有信息给出最终回答，或调用一个工具继续。）"))
@@ -407,12 +481,14 @@ class ChatViewModel(
                 emptyStreak = 0
                 val finalContent = if (lastFinish == "length") content + "\n\n（注：回答因达到长度上限被截断）" else content
                 finishAnswer(conversationId, finalContent, assistant.reasoningContent?.ifBlank { null }, System.currentTimeMillis() - loopStart)
+                answered = true
                 return
             }
 
             // Progress narration: the model's short plan written alongside the tool calls.
             val narration = assistant.content?.trim()
             if (!narration.isNullOrEmpty()) {
+                lastNarration = narration
                 val nid = tempIdCounter--
                 _uiState.update { it.copy(messages = it.messages + UiMessage(nid, Role.ASSISTANT, narration, transient = true)) }
                 groupId = null // narration starts a fresh tool group
@@ -453,6 +529,8 @@ class ChatViewModel(
                         async {
                             try {
                                 resolveCall(tc, repeatCounts, checkRepeat = false, allowConfirm = false)
+                            } catch (e: CancellationException) {
+                                throw e
                             } catch (e: Exception) {
                                 val msg = "工具执行出错：${e.message}"
                                 ToolOutcome(msg, ToolStatus.ERROR, null, msg + "（请换一种方式或稍后再试）")
@@ -482,9 +560,12 @@ class ChatViewModel(
         )
         val finalMsg: AgentMessage = try {
             repo.chatCompletion(modelId, history, null)
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             removeMessage(thinkId)
             appendAssistantError("已达到工具步数上限，收尾回答生成失败：${e.message}")
+            answered = true
             return
         }
         removeMessage(thinkId)
@@ -494,11 +575,31 @@ class ChatViewModel(
             finalMsg.reasoningContent?.ifBlank { null },
             System.currentTimeMillis() - loopStart
         )
+        answered = true
+        } finally {
+            // Cancelled (用户停止 / 进程被杀) before any answer was persisted → salvage the last plan +
+            // a 「（已停止）」 marker so the turn isn't lost as a question with no reply.
+            if (!answered) {
+                withContext(NonCancellable) {
+                    val salvage = lastNarration?.takeIf { it.isNotBlank() }
+                    finishAnswer(
+                        conversationId,
+                        (salvage?.let { "$it\n\n" } ?: "") + "（已停止）",
+                        null,
+                        System.currentTimeMillis() - loopStart
+                    )
+                }
+            }
+        }
     }
 
     private suspend fun finishAnswer(conversationId: Long, content: String, reasoning: String?, genMillis: Long? = null) {
         val savedId = repo.addMessage(conversationId, Role.ASSISTANT, content, reasoning)
-        _uiState.update { it.copy(messages = it.messages + UiMessage(savedId, Role.ASSISTANT, content, reasoning = reasoning, genMillis = genMillis)) }
+        // Only touch the visible list if this is still the active conversation (a salvage after the
+        // user navigated away persists to the old conversation's DB but must not inject a stray bubble).
+        if (_uiState.value.conversationId == conversationId) {
+            _uiState.update { it.copy(messages = it.messages + UiMessage(savedId, Role.ASSISTANT, content, reasoning = reasoning, genMillis = genMillis)) }
+        }
     }
 
     /** Instant, cleaned-up provisional title shown until the model-generated one arrives. */
@@ -630,6 +731,8 @@ class ChatViewModel(
             // Cap any single tool at TOOL_TIMEOUT_MS so one hung tool can't freeze the whole turn.
             withTimeoutOrNull(TOOL_TIMEOUT_MS) { tool.execute(args) }
                 ?: run { timedOut = true; "工具执行超时（超过 ${TOOL_TIMEOUT_MS / 1000} 秒未返回，已中断）。请改用更轻量的方式或缩小范围后重试。" }
+        } catch (e: CancellationException) {
+            throw e // user Stop / kill — propagate, don't report as a tool error
         } catch (e: Exception) {
             thrown = e
             "工具执行出错：${e.message}"
@@ -667,7 +770,11 @@ class ChatViewModel(
     private suspend fun awaitConfirm(name: String, args: String): Boolean {
         val deferred = CompletableDeferred<Boolean>()
         confirmDeferred = deferred
-        _uiState.update { it.copy(pendingTool = PendingTool(name, args)) }
+        val tool = registry.find(name)
+        val title = tool?.description?.takeWhile { it != '。' }?.takeIf { it.isNotBlank() } ?: name
+        _uiState.update {
+            it.copy(pendingTool = PendingTool(name, args, title = title, danger = name in DANGEROUS_TOOLS))
+        }
         // Don't hang the whole turn waiting on the user — treat no response within the window as declined.
         val ok = withTimeoutOrNull(CONFIRM_TIMEOUT_MS) { deferred.await() } ?: false
         _uiState.update { it.copy(pendingTool = null) }
@@ -752,6 +859,12 @@ class ChatViewModel(
     }
 
     companion object {
+        /** Tools whose effects are irreversible / high-impact — flagged in the confirm dialog. */
+        private val DANGEROUS_TOOLS = setOf(
+            "delete_file", "write_file",
+            "pc_run", "pc_write_file", "pc_upload_file",
+            "http_request"
+        )
         private const val MAX_AGENT_STEPS = 16
         /** Hard cap on any single tool call so a hung tool can't freeze the turn. */
         private const val TOOL_TIMEOUT_MS = 60_000L

@@ -11,14 +11,18 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 
 @Composable
@@ -27,6 +31,7 @@ fun NotifyAssistantScreen(viewModel: SettingsViewModel, onBack: () -> Unit) {
     val watchedApps by viewModel.watchedApps.collectAsStateWithLifecycle()
     val watchScreenshots by viewModel.watchScreenshots.collectAsStateWithLifecycle()
     val autoReplyEnabled by viewModel.autoReplyEnabled.collectAsStateWithLifecycle()
+    val autoReplyContacts by viewModel.autoReplyContacts.collectAsStateWithLifecycle()
     val autoScheduleEnabled by viewModel.autoScheduleEnabled.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val candidates = remember {
@@ -98,6 +103,18 @@ fun NotifyAssistantScreen(viewModel: SettingsViewModel, onBack: () -> Unit) {
                     modifier = Modifier.fillMaxWidth()
                 ) { Text("开启「Tang 自动发送」无障碍服务") }
                 Hint("微信/QQ 不支持通知里的快捷回复，必须开启此无障碍服务，Tang 才能自动打开对话、输入并按下发送（发送瞬间会短暂跳到微信界面）。短信、Telegram 等支持快捷回复的应用无需开启。")
+
+                if (autoReplyContacts.isNotEmpty()) {
+                    SectionTitle("已设为「全自动回复」的联系人")
+                    autoReplyContacts.forEach { key ->
+                        val name = key.substringAfter('|', key)
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            Text(name, modifier = Modifier.weight(1f), fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurface)
+                            TextButton(onClick = { viewModel.setContactAuto(key, false) }) { Text("取消自动") }
+                        }
+                    }
+                    Hint("这些人发来消息时 Tang 会【直接自动发送】回复、不再询问。点「取消自动」改回草稿模式（仍会拟好回复，但要你一键确认发送）。")
+                }
             }
         }
     }

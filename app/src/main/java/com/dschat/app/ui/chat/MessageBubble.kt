@@ -2,8 +2,10 @@ package com.dschat.app.ui.chat
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -16,7 +18,6 @@ import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Block
 import androidx.compose.material.icons.filled.Check
@@ -25,7 +26,10 @@ import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Psychology
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -60,16 +64,24 @@ import com.dschat.app.ui.components.StreamingMarkdownText
 import java.util.Locale
 
 @Composable
-fun MessageBubble(message: UiMessage, onManageMemory: () -> Unit = {}) {
+fun MessageBubble(
+    message: UiMessage,
+    onManageMemory: () -> Unit = {},
+    onRegenerate: (Long) -> Unit = {},
+    onEdit: (Long) -> Unit = {}
+) {
     when {
         message.tools != null -> ToolGroupCard(message.tools)
-        message.role == Role.USER -> UserBubble(message)
-        else -> AssistantMessage(message, onManageMemory)
+        message.role == Role.USER -> UserBubble(message, onEdit)
+        else -> AssistantMessage(message, onManageMemory, onRegenerate)
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun UserBubble(message: UiMessage) {
+private fun UserBubble(message: UiMessage, onEdit: (Long) -> Unit = {}) {
+    val clipboard = LocalClipboardManager.current
+    var menu by remember { mutableStateOf(false) }
     Row(
         modifier = Modifier.fillMaxWidth().padding(start = 48.dp),
         horizontalArrangement = Arrangement.End
@@ -102,17 +114,23 @@ private fun UserBubble(message: UiMessage) {
                 }
             }
             if (message.content.isNotBlank()) {
-                SelectionContainer {
+                Box {
+                    // Long-press → 编辑 / 复制. (Replaces the old SelectionContainer; copy is in the menu.)
                     Text(
                         text = message.content,
                         modifier = Modifier
                             .clip(RoundedCornerShape(18.dp, 18.dp, 6.dp, 18.dp))
                             .background(MaterialTheme.colorScheme.surfaceVariant)
+                            .combinedClickable(onClick = {}, onLongClick = { menu = true })
                             .padding(horizontal = 14.dp, vertical = 9.dp),
                         color = MaterialTheme.colorScheme.onSurface,
                         fontSize = 14.5.sp,
                         lineHeight = 20.sp
                     )
+                    DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                        DropdownMenuItem(text = { Text("编辑") }, onClick = { menu = false; onEdit(message.id) })
+                        DropdownMenuItem(text = { Text("复制") }, onClick = { menu = false; clipboard.setText(AnnotatedString(message.content)) })
+                    }
                 }
             }
         }
@@ -120,7 +138,7 @@ private fun UserBubble(message: UiMessage) {
 }
 
 @Composable
-private fun AssistantMessage(message: UiMessage, onManageMemory: () -> Unit = {}) {
+private fun AssistantMessage(message: UiMessage, onManageMemory: () -> Unit = {}, onRegenerate: (Long) -> Unit = {}) {
     Column(modifier = Modifier.fillMaxWidth()) {
         // AI avatar on its own line; the reply text flows full-width beneath it (no horizontal waste).
         if (!message.transient) {
@@ -154,7 +172,7 @@ private fun AssistantMessage(message: UiMessage, onManageMemory: () -> Unit = {}
             else -> AiSurface {
                 Column {
                     MarkdownText(markdown = message.content, color = MaterialTheme.colorScheme.onSurface)
-                    CopyRow(message.content)
+                    AssistantActions(message.content) { onRegenerate(message.id) }
                     GenInfoCaption(message)
                     message.memoryCaptured?.takeIf { it.isNotEmpty() }?.let { MemoryCapturedRow(it, onManageMemory) }
                 }
@@ -383,31 +401,41 @@ private fun ErrorBubble(text: String) {
     }
 }
 
+/** Actions under a finished AI reply: 复制（带「已复制 ✓」反馈）+ 重新生成. */
 @Composable
-private fun CopyRow(content: String) {
+private fun AssistantActions(content: String, onRegenerate: () -> Unit) {
     val clipboard = LocalClipboardManager.current
     var copied by remember { mutableStateOf(false) }
     LaunchedEffect(copied) { if (copied) { delay(1500); copied = false } }
-    val tint = if (copied) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
-    Row(
-        modifier = Modifier
-            .padding(top = 2.dp)
-            .clip(RoundedCornerShape(8.dp))
-            .clickable { clipboard.setText(AnnotatedString(content)); copied = true }
-            .padding(horizontal = 4.dp, vertical = 3.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Icon(
-            if (copied) Icons.Default.Check else Icons.Default.ContentCopy,
-            contentDescription = if (copied) "已复制" else "复制",
-            modifier = Modifier.size(13.dp),
-            tint = tint
-        )
-        Text(
-            text = if (copied) "  已复制" else "  复制",
-            fontSize = 11.sp,
-            color = tint
-        )
+    val copyTint = if (copied) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+    val muted = MaterialTheme.colorScheme.onSurfaceVariant
+    Row(modifier = Modifier.padding(top = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(
+            modifier = Modifier
+                .clip(RoundedCornerShape(8.dp))
+                .clickable { clipboard.setText(AnnotatedString(content)); copied = true }
+                .padding(horizontal = 4.dp, vertical = 3.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                if (copied) Icons.Default.Check else Icons.Default.ContentCopy,
+                contentDescription = if (copied) "已复制" else "复制",
+                modifier = Modifier.size(13.dp),
+                tint = copyTint
+            )
+            Text(if (copied) "  已复制" else "  复制", fontSize = 11.sp, color = copyTint)
+        }
+        Spacer(Modifier.width(8.dp))
+        Row(
+            modifier = Modifier
+                .clip(RoundedCornerShape(8.dp))
+                .clickable { onRegenerate() }
+                .padding(horizontal = 4.dp, vertical = 3.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(Icons.Default.Refresh, contentDescription = "重新生成", modifier = Modifier.size(13.dp), tint = muted)
+            Text("  重新生成", fontSize = 11.sp, color = muted)
+        }
     }
 }
 

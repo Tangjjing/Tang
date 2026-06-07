@@ -101,6 +101,14 @@ class ChatRepository(
 
     suspend fun deleteConversation(id: Long) = dao.deleteConversation(id)
 
+    /** Drop every message after [afterId] (keeps it) — used by 重新生成. */
+    suspend fun deleteMessagesAfter(conversationId: Long, afterId: Long) =
+        dao.deleteMessagesAfter(conversationId, afterId)
+
+    /** Drop [fromId] and everything after it — used by 编辑后重发. */
+    suspend fun deleteMessagesFrom(conversationId: Long, fromId: Long) =
+        dao.deleteMessagesFrom(conversationId, fromId)
+
     /** Streams a chat completion. Resolves per-model key/base-URL (falls back to global). */
     fun stream(model: String, messages: List<ApiMessage>): Flow<StreamEvent> {
         val (key, url) = settings.credsFor(model)

@@ -90,7 +90,11 @@ class NotificationCaptureService : NotificationListenerService() {
         // (WeChat carries NO inline-reply action, so we must NOT gate on hadReply — the auto-send
         // path drives the app's UI via Accessibility using the cached contentIntent instead.)
         val looksLikeMessage = title.isNotBlank() && body.isNotBlank() && title != label
-        val autoReplying = container.settings.autoReplyEnabled.value && looksLikeMessage
+        // Safety: never auto-reply to verification codes / system service numbers / group chats —
+        // an AI reply sent there is an unrecoverable social/security accident. These still fall
+        // through to ingest (待办) below; they just don't trigger the reply engine.
+        val autoReplying = container.settings.autoReplyEnabled.value &&
+            looksLikeMessage && !looksUnsafeToAutoReply(title, body)
         if (autoReplying) {
             // Per-contact auto-reply pipeline (handles the conversational reply).
             container.replyEngine.onIncoming(label, title, body, sbn.key)
@@ -130,6 +134,23 @@ class NotificationCaptureService : NotificationListenerService() {
                 return true
             }
         }
+        return false
+    }
+
+    /** Heuristic gate: is this notification a verification code / system service number / group chat
+     *  (anything we must NOT auto-reply to)? Conservative — false positives only cost a missed auto-reply. */
+    private fun looksUnsafeToAutoReply(title: String, body: String): Boolean {
+        val t = title.trim()
+        val b = body.trim()
+        // verification codes / OTP
+        if (b.contains("验证码") || t.contains("验证码") || b.contains("动态密码") || b.contains("校验码")) return true
+        if (Regex("(?i)\\b(verification|one[- ]?time|otp)\\b").containsMatchIn(b)) return true
+        // group chat: "群名(35)" member-count suffix, or 群聊/群 in the title. (A "昵称：内容" speaker-prefix
+        // rule was dropped — it both misfired on normal 1:1 messages and missed the real spaceless format.)
+        if (Regex("[(（]\\d{1,4}[)）]\\s*$").containsMatchIn(t)) return true
+        if (t.contains("群聊") || t.endsWith("群")) return true
+        // system / service numbers (sender is a long all-digit short code, e.g. 10086 / 95588 / 106…)
+        if (Regex("^\\d{4,}$").matches(t.replace(" ", ""))) return true
         return false
     }
 
