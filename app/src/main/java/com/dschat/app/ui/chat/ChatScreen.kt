@@ -2,8 +2,10 @@
 
 package com.dschat.app.ui.chat
 
+import android.Manifest
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
@@ -22,6 +24,8 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -58,8 +62,10 @@ import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.Psychology
 import androidx.compose.material.icons.filled.PushPin
+import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material.icons.filled.Stop
@@ -123,13 +129,19 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.dschat.app.BuildConfig
 import com.dschat.app.LaunchAction
 import com.dschat.app.agent.ExecutionMode
 import com.dschat.app.data.local.ConversationEntity
 import com.dschat.app.domain.ChatModel
 import com.dschat.app.domain.Role
 import com.dschat.app.ui.components.Base64Image
+import com.dschat.app.ui.components.QrScannerScreen
 import com.dschat.app.util.DocumentTextExtractor
 import com.dschat.app.util.Tts
 import com.dschat.app.ui.theme.BrandMark
@@ -140,6 +152,7 @@ import kotlinx.coroutines.withContext
 import android.provider.OpenableColumns
 import android.speech.RecognizerIntent
 import java.io.ByteArrayOutputStream
+import java.io.File
 
 @Composable
 fun ChatScreen(
@@ -194,6 +207,41 @@ fun ChatScreen(
             }
             LaunchAction.NewChat -> { viewModel.newConversation(); onActionConsumed() }
             else -> {}
+        }
+    }
+
+    // 拍照：full-res capture to a FileProvider uri, then reuse the image-attach pipeline.
+    val cameraUri = remember { arrayOfNulls<Uri>(1) }
+    val takePicture = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { ok ->
+        val uri = cameraUri[0]
+        if (ok && uri != null) scope.launch {
+            val dataUrl = withContext(Dispatchers.IO) { encodeImage(context, uri) }
+            if (dataUrl != null) viewModel.attachImage(dataUrl) else snackbarHostState.showSnackbar("照片读取失败")
+        }
+    }
+    // 扫码 fullscreen overlay visibility.
+    var showScanner by remember { mutableStateOf(false) }
+    // CAMERA runtime permission → run the deferred camera action (拍照 or 扫码).
+    var pendingCameraAction by remember { mutableStateOf<(() -> Unit)?>(null) }
+    val cameraPerm = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        val act = pendingCameraAction; pendingCameraAction = null
+        if (granted) act?.invoke()
+        else scope.launch { snackbarHostState.showSnackbar("需要相机权限才能拍照 / 扫码") }
+    }
+    fun withCamera(action: () -> Unit) {
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) action()
+        else { pendingCameraAction = action; cameraPerm.launch(Manifest.permission.CAMERA) }
+    }
+    fun launchCamera() {
+        try {
+            val dir = File(context.cacheDir, "camera").apply { mkdirs() }
+            dir.listFiles()?.forEach { it.delete() } // keep only the current shot — don't accumulate temp files
+            val file = File(dir, "shot_" + System.currentTimeMillis() + ".jpg")
+            val uri = FileProvider.getUriForFile(context, BuildConfig.APPLICATION_ID + ".fileprovider", file)
+            cameraUri[0] = uri
+            takePicture.launch(uri)
+        } catch (_: Exception) {
+            scope.launch { snackbarHostState.showSnackbar("无法启动相机") }
         }
     }
 
@@ -338,10 +386,24 @@ fun ChatScreen(
                         try { voiceLauncher.launch(intent) }
                         catch (_: Exception) { scope.launch { snackbarHostState.showSnackbar("此设备没有可用的语音识别") } }
                     },
+                    onPhoto = { withCamera { launchCamera() } },
+                    onScan = { withCamera { showScanner = true } },
                     onClearImage = viewModel::clearPendingImage,
                     onClearFile = viewModel::clearPendingFile
                 )
             }
+        }
+    }
+
+    if (showScanner) {
+        Dialog(
+            onDismissRequest = { showScanner = false },
+            properties = DialogProperties(usePlatformDefaultWidth = false)
+        ) {
+            QrScannerScreen(
+                onResult = { value -> showScanner = false; viewModel.appendInput(value) },
+                onClose = { showScanner = false }
+            )
         }
     }
 
@@ -951,6 +1013,8 @@ private fun InputBar(
     onPickImage: () -> Unit,
     onPickFile: () -> Unit,
     onVoice: () -> Unit,
+    onPhoto: () -> Unit,
+    onScan: () -> Unit,
     onClearImage: () -> Unit,
     onClearFile: () -> Unit
 ) {
@@ -1065,7 +1129,9 @@ private fun InputBar(
             PlusPanel(
                 onImage = { showPlusPanel = false; onPickImage() },
                 onFile = { showPlusPanel = false; onPickFile() },
-                onVoice = { showPlusPanel = false; onVoice() }
+                onVoice = { showPlusPanel = false; onVoice() },
+                onPhoto = { showPlusPanel = false; onPhoto() },
+                onScan = { showPlusPanel = false; onScan() }
             )
         }
     }
@@ -1074,10 +1140,11 @@ private fun InputBar(
 /** WeChat-style "+" panel that slides up below the input (keyboard hidden), with room for future
  *  actions. The input bar rides up because this grows the bottom Column. */
 @Composable
-private fun PlusPanel(onImage: () -> Unit, onFile: () -> Unit, onVoice: () -> Unit) {
+private fun PlusPanel(onImage: () -> Unit, onFile: () -> Unit, onVoice: () -> Unit, onPhoto: () -> Unit, onScan: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .horizontalScroll(rememberScrollState())
             .padding(top = 14.dp, start = 12.dp, end = 12.dp)
             .height(150.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -1085,8 +1152,9 @@ private fun PlusPanel(onImage: () -> Unit, onFile: () -> Unit, onVoice: () -> Un
     ) {
         PlusPanelItem(Icons.Default.Image, "图片", onImage)
         PlusPanelItem(Icons.Default.Description, "文件", onFile)
+        PlusPanelItem(Icons.Default.PhotoCamera, "拍照", onPhoto)
+        PlusPanelItem(Icons.Default.QrCodeScanner, "扫码", onScan)
         PlusPanelItem(Icons.Default.Mic, "语音", onVoice)
-        // (空位留给以后的功能：拍照、位置……)
     }
 }
 

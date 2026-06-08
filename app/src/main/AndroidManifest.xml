@@ -25,6 +25,8 @@
     <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:name="android.hardware.camera.any" android:required="false" />
 
     <application
         android:name=".App"
@@ -119,6 +121,17 @@
                 android:name="android.accessibilityservice"
                 android:resource="@xml/auto_send_accessibility" />
         </service>
+
+        <!-- FileProvider：拍照（ACTION_IMAGE_CAPTURE）写入应用 cache 的全分辨率照片。 -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
 
         <!-- 下拉快捷设置磁贴：一键开新对话。 -->
         <service

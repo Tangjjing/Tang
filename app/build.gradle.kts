@@ -17,8 +17,8 @@ android {
         applicationId = "com.dschat.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 124
-        versionName = "2.11"
+        versionCode = 125
+        versionName = "2.12"
         vectorDrawables { useSupportLibrary = true }
 
         // Bake third-party service keys from a GITIGNORED keys.properties (never in the public repo).
@@ -106,6 +106,13 @@ dependencies {
     implementation("com.google.mlkit:text-recognition-chinese:16.0.1")
     // On-device image labeling (offline) — coarse object/scene keywords for non-vision models.
     implementation("com.google.mlkit:image-labeling:17.0.9")
+
+    // 扫码（二维码/条码）：捆绑离线模型（不依赖 GmsCore，适合无 Play 服务的国内机）+ CameraX 预览/分析（拍照 & 扫码）。
+    implementation("com.google.mlkit:barcode-scanning:17.3.0")
+    implementation("androidx.camera:camera-core:1.4.1")
+    implementation("androidx.camera:camera-camera2:1.4.1")
+    implementation("androidx.camera:camera-lifecycle:1.4.1")
+    implementation("androidx.camera:camera-view:1.4.1")
 
     // Offline PDF text extraction (Apache PDFBox port for Android). DOCX is parsed from its own
     // XML with no extra dependency (see DocumentTextExtractor).
