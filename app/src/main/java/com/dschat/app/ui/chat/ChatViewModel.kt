@@ -1,6 +1,7 @@
 package com.dschat.app.ui.chat
 
 import android.content.Context
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.dschat.app.TurnForegroundService
@@ -73,6 +74,7 @@ data class ChatUiState(
 )
 
 class ChatViewModel(
+    private val savedState: SavedStateHandle,
     private val appContext: Context,
     private val repo: ChatRepository,
     private val settings: SettingsRepository,
@@ -121,6 +123,14 @@ class ChatViewModel(
         viewModelScope.launch {
             settings.executionMode.collect { m -> _uiState.update { it.copy(executionMode = m) } }
         }
+        // Restore the conversation the user was in if the process was killed/recreated (MIUI kills
+        // backgrounded apps aggressively) — otherwise they'd be dumped into a blank new chat.
+        savedState.get<Long>(KEY_CONV)?.let { saved ->
+            viewModelScope.launch {
+                if (repo.getConversation(saved) != null) loadConversation(saved)
+                else savedState[KEY_CONV] = null
+            }
+        }
     }
 
     fun updateInput(text: String) = _uiState.update { it.copy(input = text) }
@@ -156,6 +166,7 @@ class ChatViewModel(
 
     fun newConversation() {
         stopStreaming()
+        savedState[KEY_CONV] = null
         val def = settings.currentModel()
         _uiState.update {
             it.copy(
@@ -168,6 +179,7 @@ class ChatViewModel(
 
     fun loadConversation(id: Long) {
         stopStreaming()
+        savedState[KEY_CONV] = id
         viewModelScope.launch {
             val msgs = repo.getMessages(id).map { e ->
                 UiMessage(id = e.id, role = Role.fromApi(e.role), content = e.content, reasoning = e.reasoning)
@@ -202,6 +214,27 @@ class ChatViewModel(
         }
     }
 
+    /** Manually rename a conversation (overrides the auto-generated title). */
+    fun renameConversation(id: Long, title: String) {
+        val t = title.trim().ifBlank { return }
+        viewModelScope.launch { repo.renameConversation(id, t) }
+    }
+
+    /** Render a whole conversation as shareable Markdown (title + each turn). */
+    suspend fun exportMarkdown(id: Long): String {
+        val conv = repo.getConversation(id)
+        val msgs = repo.getMessages(id)
+        return buildString {
+            append("# ").append(conv?.title ?: "对话").append("\n\n")
+            msgs.forEach { m ->
+                if (m.content.isBlank()) return@forEach
+                append(if (m.role == Role.USER.apiValue) "**🧑 我**" else "**🤖 助手**").append("\n\n")
+                append(m.content).append("\n\n")
+            }
+            append("———\n由 Tang 导出\n")
+        }
+    }
+
     fun stopStreaming() {
         confirmDeferred?.complete(false)
         streamJob?.cancel()
@@ -226,6 +259,7 @@ class ChatViewModel(
             if (convId == null) {
                 convId = repo.createConversation(model.id, provisionalTitle(text.ifBlank { "图片" }), _uiState.value.systemPromptOverride)
                 _uiState.update { it.copy(conversationId = convId) }
+                savedState[KEY_CONV] = convId
                 if (text.isNotBlank()) generateTitle(convId, text, model.id) // fire-and-forget
             }
             val conversationId = convId
@@ -865,6 +899,8 @@ class ChatViewModel(
             "pc_run", "pc_write_file", "pc_upload_file",
             "http_request"
         )
+        /** SavedStateHandle key: the active conversation id, restored after process death. */
+        private const val KEY_CONV = "conversationId"
         private const val MAX_AGENT_STEPS = 16
         /** Hard cap on any single tool call so a hung tool can't freeze the turn. */
         private const val TOOL_TIMEOUT_MS = 60_000L

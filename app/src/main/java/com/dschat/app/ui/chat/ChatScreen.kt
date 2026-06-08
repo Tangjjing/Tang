@@ -3,6 +3,7 @@
 package com.dschat.app.ui.chat
 
 import android.content.Context
+import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
@@ -16,8 +17,10 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -49,7 +52,6 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Image
-import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.EditNote
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Menu
@@ -230,6 +232,8 @@ fun ChatScreen(
                 onSelect = { id -> viewModel.loadConversation(id); scope.launch { drawerState.close() } },
                 onNew = { viewModel.newConversation(); scope.launch { drawerState.close() } },
                 onDelete = { viewModel.deleteConversation(it) },
+                onRename = { id, title -> viewModel.renameConversation(id, title) },
+                onExport = { id -> scope.launch { shareText(context, viewModel.exportMarkdown(id)) } },
                 onTasks = { scope.launch { drawerState.close() }; onOpenTasks() },
                 onSettings = { scope.launch { drawerState.close() }; onOpenSettings() }
             )
@@ -540,6 +544,7 @@ private fun ModelSelector(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun HistoryDrawer(
     conversations: List<ConversationEntity>,
@@ -547,6 +552,8 @@ private fun HistoryDrawer(
     onSelect: (Long) -> Unit,
     onNew: () -> Unit,
     onDelete: (Long) -> Unit,
+    onRename: (Long, String) -> Unit,
+    onExport: (Long) -> Unit,
     onTasks: () -> Unit,
     onSettings: () -> Unit
 ) {
@@ -554,6 +561,14 @@ private fun HistoryDrawer(
     // Leave ~1/4 of the screen for the current conversation instead of a thin sliver.
     val drawerWidth = (LocalConfiguration.current.screenWidthDp * 0.76f).dp
     var pendingDelete by remember { mutableStateOf<ConversationEntity?>(null) }
+    var renaming by remember { mutableStateOf<ConversationEntity?>(null) }
+    var menuFor by remember { mutableStateOf<Long?>(null) }
+    var query by remember { mutableStateOf("") }
+    val showSearch = conversations.size >= 6
+    val filtered = remember(conversations, query, showSearch) {
+        if (!showSearch || query.isBlank()) conversations
+        else conversations.filter { it.title.contains(query.trim(), ignoreCase = true) }
+    }
     ModalDrawerSheet(drawerContainerColor = surface, modifier = Modifier.width(drawerWidth)) {
         Row(
             modifier = Modifier
@@ -575,37 +590,54 @@ private fun HistoryDrawer(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
         )
+        if (showSearch) {
+            OutlinedTextField(
+                value = query,
+                onValueChange = { query = it },
+                singleLine = true,
+                placeholder = { Text("搜索会话标题", fontSize = 13.sp) },
+                textStyle = MaterialTheme.typography.bodyMedium,
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 2.dp)
+            )
+        }
         Box(Modifier.weight(1f)) {
+            if (filtered.isEmpty()) {
+                Text(
+                    "没有匹配的会话",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(16.dp)
+                )
+            }
             LazyColumn(Modifier.fillMaxSize()) {
-                items(conversations, key = { it.id }) { c ->
+                items(filtered, key = { it.id }) { c ->
                     val selected = c.id == currentId
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 8.dp, vertical = 1.dp)
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(if (selected) MaterialTheme.colorScheme.surfaceVariant else Color.Transparent)
-                            .clickable { onSelect(c.id) }
-                            .padding(start = 12.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            c.title,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurface,
+                    Box {
+                        Row(
                             modifier = Modifier
-                                .weight(1f)
-                                .padding(vertical = 10.dp)
-                        )
-                        IconButton(onClick = { pendingDelete = c }, modifier = Modifier.size(40.dp)) {
-                            Icon(
-                                Icons.Default.Delete,
-                                contentDescription = "删除会话「${c.title}」",
-                                modifier = Modifier.size(16.dp),
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                .fillMaxWidth()
+                                .padding(horizontal = 8.dp, vertical = 1.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(if (selected) MaterialTheme.colorScheme.surfaceVariant else Color.Transparent)
+                                .combinedClickable(onClick = { onSelect(c.id) }, onLongClick = { menuFor = c.id })
+                                .padding(start = 12.dp, end = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                c.title,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .padding(vertical = 11.dp)
                             )
+                        }
+                        DropdownMenu(expanded = menuFor == c.id, onDismissRequest = { menuFor = null }) {
+                            DropdownMenuItem(text = { Text("重命名") }, onClick = { menuFor = null; renaming = c })
+                            DropdownMenuItem(text = { Text("导出 / 分享") }, onClick = { menuFor = null; onExport(c.id) })
+                            DropdownMenuItem(text = { Text("删除") }, onClick = { menuFor = null; pendingDelete = c })
                         }
                     }
                 }
@@ -630,6 +662,24 @@ private fun HistoryDrawer(
             text = { Text("「${conv.title}」将被永久删除，无法恢复。") },
             confirmButton = { TextButton(onClick = { onDelete(conv.id); pendingDelete = null }) { Text("删除") } },
             dismissButton = { TextButton(onClick = { pendingDelete = null }) { Text("取消") } }
+        )
+    }
+
+    renaming?.let { conv ->
+        var name by remember(conv.id) { mutableStateOf(conv.title) }
+        AlertDialog(
+            onDismissRequest = { renaming = null },
+            title = { Text("重命名对话") },
+            text = {
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            },
+            confirmButton = { TextButton(onClick = { onRename(conv.id, name); renaming = null }, enabled = name.isNotBlank()) { Text("保存") } },
+            dismissButton = { TextButton(onClick = { renaming = null }) { Text("取消") } }
         )
     }
 }
@@ -915,6 +965,18 @@ private fun PlusPanelItem(icon: androidx.compose.ui.graphics.vector.ImageVector,
         }
         Spacer(Modifier.height(6.dp))
         Text(label, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+/** Share plain text (a whole conversation exported as Markdown) via the Android share sheet. */
+private fun shareText(context: Context, text: String) {
+    try {
+        val send = Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_TEXT, text)
+        }
+        context.startActivity(Intent.createChooser(send, "分享对话"))
+    } catch (_: Exception) {
     }
 }
 

@@ -72,6 +72,11 @@ class DeepSeekApi {
             .post(requestBody)
             .build()
 
+        // Track whether the stream terminated properly ([DONE] or a finish_reason), so an early socket
+        // drop mid-answer isn't silently treated as a complete reply (common on flaky mobile networks).
+        var gotContent = false
+        var properlyClosed = false
+        var finishReason: String? = null
         val listener = object : EventSourceListener() {
             override fun onEvent(
                 eventSource: EventSource,
@@ -80,18 +85,20 @@ class DeepSeekApi {
                 data: String
             ) {
                 if (data == "[DONE]") {
+                    properlyClosed = true
                     trySend(StreamEvent.Done)
                     return
                 }
                 try {
                     val chunk = json.decodeFromString(StreamChunk.serializer(), data)
                     chunk.usage?.let { trySend(StreamEvent.Usage(it.promptTokens, it.completionTokens)) }
-                    val delta = chunk.choices.firstOrNull()?.delta ?: return
-                    delta.reasoningContent?.let {
+                    val choice = chunk.choices.firstOrNull() ?: return
+                    choice.finishReason?.let { finishReason = it; properlyClosed = true }
+                    choice.delta.reasoningContent?.let {
                         if (it.isNotEmpty()) trySend(StreamEvent.Reasoning(it))
                     }
-                    delta.content?.let {
-                        if (it.isNotEmpty()) trySend(StreamEvent.Content(it))
+                    choice.delta.content?.let {
+                        if (it.isNotEmpty()) { gotContent = true; trySend(StreamEvent.Content(it)) }
                     }
                 } catch (_: Exception) {
                     // Ignore keep-alive / non-JSON lines.
@@ -99,6 +106,9 @@ class DeepSeekApi {
             }
 
             override fun onClosed(eventSource: EventSource) {
+                // Closed without [DONE]/finish_reason after streaming content → likely cut off.
+                if (gotContent && !properlyClosed) trySend(StreamEvent.Content(TRUNCATION_NOTE))
+                else if (finishReason == "length") trySend(StreamEvent.Content(LENGTH_NOTE))
                 trySend(StreamEvent.Done)
                 close()
             }
@@ -128,6 +138,8 @@ class DeepSeekApi {
                         append(t?.message ?: "网络连接失败")
                     }
                 }
+                // Salvage a partial answer with a truncation note instead of discarding/silently keeping it.
+                if (gotContent) trySend(StreamEvent.Content(TRUNCATION_NOTE))
                 trySend(StreamEvent.Error(msg))
                 close()
             }
@@ -231,5 +243,7 @@ class DeepSeekApi {
         private const val MAX_RETRIES = 3
         /** Generous cap so normal answers aren't truncated, but runaway generation is bounded. */
         const val DEFAULT_AGENT_MAX_TOKENS = 4096
+        private const val TRUNCATION_NOTE = "\n\n（⚠️ 连接中断，回答可能不完整，可点「重新生成」重试）"
+        private const val LENGTH_NOTE = "\n\n（注：回答因达到长度上限被截断）"
     }
 }
