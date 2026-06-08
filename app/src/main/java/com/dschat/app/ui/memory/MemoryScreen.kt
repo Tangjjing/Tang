@@ -109,7 +109,8 @@ fun MemoryListScreen(
                             Icon(Icons.Default.Delete, "批量删除")
                         }
                     }
-                }
+                },
+                colors = androidx.compose.material3.TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)
             )
         },
         floatingActionButton = {
@@ -389,7 +390,8 @@ fun MemoryEditScreen(
                         }
                     }
                     IconButton(onClick = { save() }) { Icon(Icons.Default.Check, contentDescription = "保存") }
-                }
+                },
+                colors = androidx.compose.material3.TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)
             )
         }
     ) { padding ->

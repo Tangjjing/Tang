@@ -55,7 +55,8 @@ fun UsageScreen(viewModel: UsageViewModel, onBack: () -> Unit) {
                 navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "返回") } },
                 actions = {
                     if (usage.isNotEmpty()) TextButton(onClick = { viewModel.clear() }) { Text("清空") }
-                }
+                },
+                colors = androidx.compose.material3.TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)
             )
         }
     ) { padding ->

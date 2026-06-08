@@ -258,7 +258,7 @@ fun ChatScreen(
         ) { padding ->
             Column(modifier = Modifier.padding(padding).fillMaxSize().imePadding()) {
                 if (!state.hasApiKey) ApiKeyBanner(onOpenModels)
-                if (state.agentEnabled) AgentBanner(state.executionMode)
+                if (state.agentEnabled) AgentBanner(state.executionMode) { viewModel.setExecutionMode(it) }
 
                 if (state.messages.isEmpty()) {
                     EmptyState(onSuggestion = viewModel::sendQuick, modifier = Modifier.weight(1f))
@@ -724,13 +724,23 @@ private fun ApiKeyBanner(onOpenModels: () -> Unit) {
 }
 
 @Composable
-private fun AgentBanner(mode: ExecutionMode) {
+private fun AgentBanner(mode: ExecutionMode, onModeChange: (ExecutionMode) -> Unit) {
+    var showDialog by remember { mutableStateOf(false) }
     val modeLabel = when (mode) {
         ExecutionMode.CONFIRM_ALL -> "全部确认"
         ExecutionMode.CONFIRM_SIDE_EFFECTS -> "仅副作用确认"
         ExecutionMode.FULL_AUTO -> "完全放权"
     }
-    Surface(color = MaterialTheme.colorScheme.surfaceVariant, modifier = Modifier.fillMaxWidth()) {
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { showDialog = true }
+            .semantics {
+                role = androidx.compose.ui.semantics.Role.Button
+                contentDescription = "Agent 执行模式：$modeLabel，点击切换"
+            }
+    ) {
         Row(
             Modifier.padding(horizontal = 14.dp, vertical = 7.dp),
             verticalAlignment = Alignment.CenterVertically
@@ -741,7 +751,62 @@ private fun AgentBanner(mode: ExecutionMode) {
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 fontSize = 12.sp
             )
+            Spacer(Modifier.weight(1f))
+            Text("切换", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
+            Icon(Icons.Default.KeyboardArrowDown, contentDescription = null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
         }
+    }
+
+    if (showDialog) {
+        AlertDialog(
+            onDismissRequest = { showDialog = false },
+            confirmButton = { TextButton(onClick = { showDialog = false }) { Text("关闭") } },
+            title = { Text("Agent 执行模式") },
+            text = {
+                Column {
+                    ExecutionMode.entries.forEach { m ->
+                        val label = when (m) {
+                            ExecutionMode.CONFIRM_ALL -> "全部确认"
+                            ExecutionMode.CONFIRM_SIDE_EFFECTS -> "仅副作用确认 ·推荐"
+                            ExecutionMode.FULL_AUTO -> "完全放权"
+                        }
+                        val desc = when (m) {
+                            ExecutionMode.CONFIRM_ALL -> "每次调用工具都先问你，最稳。"
+                            ExecutionMode.CONFIRM_SIDE_EFFECTS -> "只在改东西 / 发送 / 写文件时才问，读取类直接执行。"
+                            ExecutionMode.FULL_AUTO -> "都不问、最快，但模型可不经确认直接读写文件、发请求、操作设备。"
+                        }
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .clickable { onModeChange(m) }
+                                .padding(vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                Icons.Default.Check,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp),
+                                tint = if (mode == m) MaterialTheme.colorScheme.primary else Color.Transparent
+                            )
+                            Spacer(Modifier.width(10.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text(label, fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurface)
+                                Text(desc, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, lineHeight = 16.sp)
+                            }
+                        }
+                    }
+                    if (mode == ExecutionMode.FULL_AUTO) {
+                        Spacer(Modifier.height(6.dp))
+                        Text(
+                            "⚠️ 「完全放权」下模型可不经你确认直接读写文件、发请求、操作手机 / 电脑，请谨慎。",
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.error,
+                            lineHeight = 16.sp
+                        )
+                    }
+                }
+            }
+        )
     }
 }
 

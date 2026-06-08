@@ -76,7 +76,8 @@ fun ModelsScreen(viewModel: ModelsViewModel, onBack: () -> Unit) {
                     IconButton(onClick = { viewModel.fetchFromApi() }) {
                         Icon(Icons.Default.CloudDownload, contentDescription = "从接口拉取模型")
                     }
-                }
+                },
+                colors = androidx.compose.material3.TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)
             )
         },
         floatingActionButton = {

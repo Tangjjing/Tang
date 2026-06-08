@@ -71,7 +71,8 @@ fun TasksScreen(viewModel: TasksViewModel, onBack: () -> Unit, onOpenNotify: () 
                     if (tasks.any { it.status == TaskStatus.DONE }) {
                         TextButton(onClick = { viewModel.clearFinished() }) { Text("清除已完成") }
                     }
-                }
+                },
+                colors = androidx.compose.material3.TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)
             )
         },
         snackbarHost = { SnackbarHost(snackbar) }

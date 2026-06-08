@@ -156,6 +156,8 @@ class ChatViewModel(
     }
     fun setAgentEnabled(enabled: Boolean) = settings.setAgentEnabled(enabled)
 
+    fun setExecutionMode(mode: ExecutionMode) = settings.setExecutionMode(mode)
+
     fun resolveTool(approve: Boolean) {
         confirmDeferred?.complete(approve)
     }
