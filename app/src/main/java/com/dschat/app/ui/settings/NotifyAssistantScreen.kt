@@ -2,8 +2,11 @@
 
 package com.dschat.app.ui.settings
 
+import android.content.ComponentName
+import android.content.Context
 import android.content.Intent
 import android.provider.Settings
+import com.dschat.app.agent.tasks.AutoSendAccessibilityService
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
@@ -16,14 +19,41 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.app.NotificationManagerCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+
+/** Is our NotificationListenerService actually granted in system settings? */
+private fun isNotificationListenerOn(context: Context): Boolean =
+    NotificationManagerCompat.getEnabledListenerPackages(context).contains(context.packageName)
+
+/** Is the "Tang 自动发送" accessibility service actually enabled in system settings? */
+private fun isAutoSendAccessibilityOn(context: Context): Boolean {
+    val flat = Settings.Secure.getString(context.contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES) ?: return false
+    val target = ComponentName(context, AutoSendAccessibilityService::class.java)
+    return flat.split(':').any { ComponentName.unflattenFromString(it) == target }
+}
+
+@Composable
+private fun AuthStatus(enabled: Boolean) {
+    Text(
+        if (enabled) "✓ 已开启" else "● 未开启（点上方按钮去开启）",
+        fontSize = 12.sp,
+        color = if (enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.error
+    )
+}
 
 @Composable
 fun NotifyAssistantScreen(viewModel: SettingsViewModel, onBack: () -> Unit) {
@@ -47,6 +77,22 @@ fun NotifyAssistantScreen(viewModel: SettingsViewModel, onBack: () -> Unit) {
         ).forEach { (label, pkg) -> if (pm.getLaunchIntentForPackage(pkg) != null) out.add(label to pkg) }
         out
     }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    // Seed with the real current state so the badge is correct on entry (not a wrong "未开启" until resume).
+    var notifListenerOn by remember { mutableStateOf(isNotificationListenerOn(context)) }
+    var accessibilityOn by remember { mutableStateOf(isAutoSendAccessibilityOn(context)) }
+    // Re-check the real system grant state every time the screen resumes (e.g. after returning from the
+    // system settings page the buttons open), so the badges reflect reality without a manual refresh.
+    DisposableEffect(lifecycleOwner) {
+        val obs = LifecycleEventObserver { _, e ->
+            if (e == Lifecycle.Event.ON_RESUME) {
+                notifListenerOn = isNotificationListenerOn(context)
+                accessibilityOn = isAutoSendAccessibilityOn(context)
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(obs)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(obs) }
+    }
 
     SettingsSubScreen("通知助理（实验）", onBack) {
         ToggleRow(
@@ -60,6 +106,7 @@ fun NotifyAssistantScreen(viewModel: SettingsViewModel, onBack: () -> Unit) {
                 onClick = { try { context.startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) } catch (_: Exception) {} },
                 modifier = Modifier.fillMaxWidth()
             ) { Text("① 打开「通知使用权」授权页") }
+            AuthStatus(notifListenerOn)
             Hint("在系统页面里找到「DeepSeek 通知助理」并允许，否则读不到通知。小米/HyperOS 还需关闭本应用电池优化、允许自启动，否则后台会被杀。")
 
             SectionTitle("② 选择要监听的应用")
@@ -102,6 +149,7 @@ fun NotifyAssistantScreen(viewModel: SettingsViewModel, onBack: () -> Unit) {
                     onClick = { try { context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) } catch (_: Exception) {} },
                     modifier = Modifier.fillMaxWidth()
                 ) { Text("开启「Tang 自动发送」无障碍服务") }
+                AuthStatus(accessibilityOn)
                 Hint("微信/QQ 不支持通知里的快捷回复，必须开启此无障碍服务，Tang 才能自动打开对话、输入并按下发送（发送瞬间会短暂跳到微信界面）。短信、Telegram 等支持快捷回复的应用无需开启。")
 
                 if (autoReplyContacts.isNotEmpty()) {

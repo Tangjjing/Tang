@@ -69,7 +69,7 @@ class ReplyEngine(
         val notifKey = lastNotifKey[key]
         val autoSent = settings.isContactAuto(key) && notifKey != null && (
             NotificationCaptureService.trySendReply(appContext, notifKey, reply) ||
-                NotificationCaptureService.autoSendViaAccessibility(appContext, notifKey, reply)
+                NotificationCaptureService.autoSendViaAccessibility(appContext, notifKey, reply, contact)
             )
         if (!autoSent) {
             ReplyNotifier.postDraft(appContext, key, contact, reply, notifKey)

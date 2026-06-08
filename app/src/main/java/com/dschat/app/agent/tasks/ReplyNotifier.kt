@@ -64,20 +64,20 @@ class ReplyReceiver : BroadcastReceiver() {
             ReplyNotifier.ACTION_AUTO -> {
                 val app = context.applicationContext as? App
                 if (contactKey != null) app?.container?.settings?.setContactAuto(contactKey, true)
-                if (notifKey != null) sendNow(context, notifKey, text)
+                if (notifKey != null) sendNow(context, notifKey, text, contactKey?.substringAfter('|') ?: "")
                 nm?.cancel(notifId)
             }
             ReplyNotifier.ACTION_SEND -> {
-                if (notifKey != null) sendNow(context, notifKey, text)
+                if (notifKey != null) sendNow(context, notifKey, text, contactKey?.substringAfter('|') ?: "")
                 nm?.cancel(notifId)
             }
         }
     }
 
     /** RemoteInput first (SMS/Telegram); fall back to the Accessibility auto-typer (WeChat/QQ). */
-    private fun sendNow(context: Context, notifKey: String, text: String) {
+    private fun sendNow(context: Context, notifKey: String, text: String, contact: String) {
         if (NotificationCaptureService.trySendReply(context, notifKey, text)) return
-        if (NotificationCaptureService.autoSendViaAccessibility(context, notifKey, text)) return
+        if (NotificationCaptureService.autoSendViaAccessibility(context, notifKey, text, contact)) return
         // Both failed (typically WeChat with the accessibility service still OFF): copy + guide.
         val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
         cm?.setPrimaryClip(ClipData.newPlainText("draft", text))

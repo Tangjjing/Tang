@@ -186,11 +186,11 @@ class NotificationCaptureService : NotificationListenerService() {
          * Accessibility service, then open the exact chat via the cached contentIntent so the
          * service can type + press send. Returns false if accessibility isn't enabled / no intent.
          */
-        fun autoSendViaAccessibility(context: Context, key: String, text: String): Boolean {
+        fun autoSendViaAccessibility(context: Context, key: String, text: String, contactName: String = ""): Boolean {
             if (!AutoSend.isEnabled()) return false
             val (pkg, ci) = openCache[key] ?: return false
             return try {
-                AutoSend.request(pkg, text)
+                AutoSend.request(pkg, text, contactName)
                 ci.send()
                 true
             } catch (e: Exception) {
