@@ -28,6 +28,8 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -49,6 +51,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.Send
@@ -66,6 +69,7 @@ import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.Psychology
 import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.QrCodeScanner
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material.icons.filled.Stop
@@ -75,10 +79,12 @@ import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -113,10 +119,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
@@ -127,6 +137,7 @@ import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -260,6 +271,10 @@ fun ChatScreen(
             li.totalItemsCount == 0 || (li.visibleItemsInfo.lastOrNull()?.index ?: -1) >= li.totalItemsCount - 1
         }
     }
+    // The true bottom item is the trailing ChoiceCard (index = messages.size) when one is pending,
+    // otherwise the last message. Scroll effects must target THIS, not blindly the last message — else
+    // the inline 选项卡片 (and its 其它 text field) gets scrolled off-screen behind the keyboard.
+    val bottomIndex = if (state.pendingChoice != null) state.messages.size else state.messages.size - 1
     LaunchedEffect(
         state.messages.size,
         lastMsg?.content?.length,
@@ -269,7 +284,13 @@ fun ChatScreen(
         lastMsg?.tools?.lastOrNull()?.result?.length
     ) {
         if (state.messages.isNotEmpty() && atBottom) {
-            listState.scrollToItem(state.messages.size - 1, Int.MAX_VALUE)
+            listState.scrollToItem(bottomIndex, Int.MAX_VALUE)
+        }
+    }
+    // When the inline 选项卡片 appears, scroll it into view (it's the trailing item after all messages).
+    LaunchedEffect(state.pendingChoice != null) {
+        if (state.pendingChoice != null && state.messages.isNotEmpty()) {
+            listState.scrollToItem(state.messages.size, Int.MAX_VALUE)
         }
     }
     LaunchedEffect(state.errorMessage) {
@@ -295,7 +316,7 @@ fun ChatScreen(
             var stable = 0
             var guard = 0
             while (stable < 2 && guard < 48) {
-                listState.scrollToItem(state.messages.size - 1, Int.MAX_VALUE)
+                listState.scrollToItem(bottomIndex, Int.MAX_VALUE)
                 val cur = imeInsets.getBottom(density)
                 if (cur == prev) stable++ else { stable = 0; prev = cur }
                 guard++
@@ -362,6 +383,14 @@ fun ChatScreen(
                                     onEdit = viewModel::editMessage,
                                     onSpeak = { text -> tts.speak(text) }
                                 )
+                            }
+                        }
+                        // 内联选项卡片（ask_user）——挂在对话流末尾，模型问、用户点选即作答。
+                        state.pendingChoice?.let { choice ->
+                            item(key = "ask-user-choice", contentType = "choice") {
+                                Box(Modifier.animateItem()) {
+                                    ChoiceCard(choice = choice, onResolve = { viewModel.resolveChoice(choice.id, it) })
+                                }
                             }
                         }
                     }
@@ -700,14 +729,57 @@ private fun HistoryDrawer(
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
         )
         if (showSearch) {
-            OutlinedTextField(
-                value = query,
-                onValueChange = { query = it },
-                singleLine = true,
-                placeholder = { Text("搜索会话标题", fontSize = 13.sp) },
-                textStyle = MaterialTheme.typography.bodyMedium,
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 2.dp)
-            )
+            // 小巧胶囊搜索框：填充底色 + 圆角 + 搜索/清除图标，比默认 OutlinedTextField 矮一半。
+            Surface(
+                color = MaterialTheme.colorScheme.surfaceVariant,
+                shape = RoundedCornerShape(18.dp),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp)
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        Icons.Default.Search,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    BasicTextField(
+                        value = query,
+                        onValueChange = { query = it },
+                        singleLine = true,
+                        textStyle = MaterialTheme.typography.bodyMedium.copy(color = MaterialTheme.colorScheme.onSurface),
+                        cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                        modifier = Modifier.weight(1f),
+                        decorationBox = { inner ->
+                            // 占位字与输入字共用同一个居中对齐的盒子、同一字号 → 垂直对齐。
+                            Box(contentAlignment = Alignment.CenterStart) {
+                                if (query.isEmpty()) {
+                                    Text(
+                                        "搜索会话",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                                inner()
+                            }
+                        }
+                    )
+                    if (query.isNotEmpty()) {
+                        Icon(
+                            Icons.Default.Close,
+                            contentDescription = "清除",
+                            modifier = Modifier
+                                .size(16.dp)
+                                .clip(CircleShape)
+                                .clickable { query = "" },
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
         }
         Box(Modifier.weight(1f)) {
             if (filtered.isEmpty()) {
@@ -721,6 +793,9 @@ private fun HistoryDrawer(
             LazyColumn(Modifier.fillMaxSize()) {
                 items(filtered, key = { it.id }) { c ->
                     val selected = c.id == currentId
+                    val density = LocalDensity.current
+                    var lastDown by remember { mutableStateOf(Offset.Zero) }
+                    var menuOffset by remember { mutableStateOf(DpOffset.Zero) }
                     Box {
                         Row(
                             modifier = Modifier
@@ -728,7 +803,22 @@ private fun HistoryDrawer(
                                 .padding(horizontal = 8.dp, vertical = 1.dp)
                                 .clip(RoundedCornerShape(10.dp))
                                 .background(if (selected) MaterialTheme.colorScheme.surfaceVariant else Color.Transparent)
-                                .combinedClickable(onClick = { onSelect(c.id) }, onLongClick = { menuFor = c.id })
+                                // 记录按下位置（Initial pass，不消费事件，保留 combinedClickable 的水波纹/语义），长按时菜单从手指处弹出。
+                                .pointerInput(c.id) {
+                                    awaitPointerEventScope {
+                                        while (true) {
+                                            val e = awaitPointerEvent(PointerEventPass.Initial)
+                                            e.changes.firstOrNull()?.let { lastDown = it.position }
+                                        }
+                                    }
+                                }
+                                .combinedClickable(
+                                    onClick = { onSelect(c.id) },
+                                    onLongClick = {
+                                        menuOffset = with(density) { DpOffset(lastDown.x.toDp(), lastDown.y.toDp()) }
+                                        menuFor = c.id
+                                    }
+                                )
                                 .padding(start = 12.dp, end = 12.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
@@ -751,7 +841,15 @@ private fun HistoryDrawer(
                                 )
                             }
                         }
-                        DropdownMenu(expanded = menuFor == c.id, onDismissRequest = { menuFor = null }) {
+                        DropdownMenu(
+                            expanded = menuFor == c.id,
+                            onDismissRequest = { menuFor = null },
+                            offset = menuOffset,
+                            shape = RoundedCornerShape(16.dp),
+                            containerColor = MaterialTheme.colorScheme.surface,
+                            tonalElevation = 3.dp,
+                            shadowElevation = 6.dp
+                        ) {
                             DropdownMenuItem(text = { Text(if (c.pinned) "取消置顶" else "置顶") }, onClick = { menuFor = null; onPin(c.id, !c.pinned) })
                             DropdownMenuItem(text = { Text("重命名") }, onClick = { menuFor = null; renaming = c })
                             DropdownMenuItem(text = { Text("导出 / 分享") }, onClick = { menuFor = null; onExport(c.id) })
@@ -817,6 +915,94 @@ private fun DrawerRow(icon: androidx.compose.ui.graphics.vector.ImageVector, lab
         Icon(icon, null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
         Spacer(Modifier.width(14.dp))
         Text(label, fontSize = 14.5.sp, color = MaterialTheme.colorScheme.onSurface)
+    }
+}
+
+/** Inline 选项卡片 for the ask_user tool: the model's question + tappable option chips (+ optional 「其它」
+ *  custom input). Single-select resolves on tap; multi-select toggles chips and resolves on 确定. */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun ChoiceCard(choice: PendingChoice, onResolve: (String) -> Unit) {
+    var selected by remember(choice) { mutableStateOf(setOf<String>()) }
+    var otherText by remember(choice) { mutableStateOf("") }
+    var showOther by remember(choice) { mutableStateOf(false) }
+    // Fire onResolve at most once per card — guards against double/queued taps answering a later card.
+    var resolved by remember(choice) { mutableStateOf(false) }
+    val submit: (String) -> Unit = { s -> if (!resolved) { resolved = true; onResolve(s) } }
+
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        shape = RoundedCornerShape(16.dp),
+        modifier = Modifier.fillMaxWidth().padding(top = 2.dp)
+    ) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Outlined.AutoAwesome, null, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
+                Spacer(Modifier.width(6.dp))
+                Text(choice.question, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+            }
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp)
+            ) {
+                choice.options.forEach { opt ->
+                    FilterChip(
+                        selected = choice.multiSelect && opt in selected,
+                        enabled = !resolved,
+                        onClick = {
+                            if (choice.multiSelect) {
+                                selected = if (opt in selected) selected - opt else selected + opt
+                            } else {
+                                submit(opt) // 单选：点一下立即作答
+                            }
+                        },
+                        label = { Text(opt) }
+                    )
+                }
+                if (choice.allowOther) {
+                    FilterChip(
+                        selected = showOther,
+                        enabled = !resolved,
+                        onClick = { showOther = !showOther },
+                        label = { Text("其它…") }
+                    )
+                }
+            }
+            if (choice.allowOther && showOther) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(
+                        value = otherText,
+                        onValueChange = { otherText = it },
+                        singleLine = true,
+                        enabled = !resolved,
+                        placeholder = { Text("自定义…", fontSize = 13.sp) },
+                        textStyle = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.weight(1f)
+                    )
+                    if (!choice.multiSelect) {
+                        TextButton(
+                            onClick = { if (otherText.isNotBlank()) submit(otherText.trim()) },
+                            enabled = !resolved && otherText.isNotBlank()
+                        ) { Text("确定") }
+                    }
+                }
+            }
+            // Bottom row: low-emphasis 跳过 (lets the user decline without killing the turn) + 确定 for multi-select.
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                TextButton(onClick = { submit("") }, enabled = !resolved) {
+                    Text("跳过", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                Spacer(Modifier.weight(1f))
+                if (choice.multiSelect) {
+                    val picked = selected.toList() +
+                        (if (showOther && otherText.isNotBlank()) listOf(otherText.trim()) else emptyList())
+                    Button(
+                        onClick = { submit(picked.joinToString("、")) },
+                        enabled = !resolved && picked.isNotEmpty()
+                    ) { Text(if (picked.isEmpty()) "确定" else "确定（${picked.size}）") }
+                }
+            }
+        }
     }
 }
 

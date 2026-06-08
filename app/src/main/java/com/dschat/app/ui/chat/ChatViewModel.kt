@@ -7,6 +7,8 @@ import androidx.lifecycle.viewModelScope
 import com.dschat.app.TurnForegroundService
 import com.dschat.app.agent.ExecutionMode
 import com.dschat.app.agent.ToolRegistry
+import com.dschat.app.agent.boolOr
+import com.dschat.app.agent.str
 import com.dschat.app.agent.tasks.MemoryExtractor
 import com.dschat.app.agent.vision.ImageTextExtractor
 import com.dschat.app.data.local.ConversationEntity
@@ -43,7 +45,10 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 
 data class PendingTool(
@@ -51,6 +56,16 @@ data class PendingTool(
     val args: String,
     val title: String = name,      // human-readable purpose (tool description's first sentence)
     val danger: Boolean = false    // irreversible / high-impact (delete, run on PC, write, network)
+)
+
+/** An inline 选项卡片 the model raised via the ask_user tool — the loop is suspended until the user picks.
+ *  [id] ties a UI tap back to THIS card so a stale/queued tap can't answer a later card. */
+data class PendingChoice(
+    val id: Long,
+    val question: String,
+    val options: List<String>,
+    val multiSelect: Boolean,
+    val allowOther: Boolean
 )
 
 private data class ToolOutcome(val result: String, val status: ToolStatus, val dur: Long?, val feedback: String = result)
@@ -67,6 +82,7 @@ data class ChatUiState(
     val agentEnabled: Boolean = false,
     val executionMode: ExecutionMode = ExecutionMode.CONFIRM_SIDE_EFFECTS,
     val pendingTool: PendingTool? = null,
+    val pendingChoice: PendingChoice? = null,
     val systemPromptOverride: String? = null,
     val pendingImage: String? = null,
     val pendingFileName: String? = null,
@@ -101,6 +117,8 @@ class ChatViewModel(
     private var streamJob: Job? = null
     private var tempIdCounter = -1L
     private var confirmDeferred: CompletableDeferred<Boolean>? = null
+    private var choiceDeferred: CompletableDeferred<String?>? = null
+    private var choiceSeq = 0L
 
     // Auto-memory: the latest user-typed text for the in-flight turn + a throttle stamp.
     private var lastUserText: String = ""
@@ -179,6 +197,13 @@ class ChatViewModel(
 
     fun resolveTool(approve: Boolean) {
         confirmDeferred?.complete(approve)
+    }
+
+    /** UI calls this when the user picks from (or skips) the inline 选项卡片 raised by ask_user.
+     *  [id] must match the currently-pending card, so a stale/queued tap from a dismissed card can't
+     *  answer a later one. Pass the joined display string; blank means skipped. */
+    fun resolveChoice(id: Long, result: String?) {
+        if (_uiState.value.pendingChoice?.id == id) choiceDeferred?.complete(result)
     }
 
     /** True if a turn is in flight. Checks streamJob (set synchronously) in addition to isStreaming
@@ -272,6 +297,10 @@ class ChatViewModel(
 
     fun stopStreaming() {
         confirmDeferred?.complete(false)
+        choiceDeferred?.complete(null)
+        // Clear the card synchronously so it can never linger (or attach to another conversation) if the
+        // awaiting coroutine is cancelled before its own finally runs.
+        if (_uiState.value.pendingChoice != null) _uiState.update { it.copy(pendingChoice = null) }
         streamJob?.cancel()
         streamJob = null
     }
@@ -590,7 +619,9 @@ class ChatViewModel(
                     ExecutionMode.CONFIRM_SIDE_EFFECTS -> tool.sideEffect
                 }
             }
-            val outcomes = if (calls.size > 1 && !needsAnyConfirm) {
+            // ask_user must run sequentially (it suspends on UI) — never race it inside the parallel batch.
+            val hasAskUser = calls.any { it.function.name == "ask_user" }
+            val outcomes = if (calls.size > 1 && !needsAnyConfirm && !hasAskUser) {
                 // checkRepeat=false in parallel: repeatCounts (a plain HashMap) isn't safe for concurrent
                 // mutation. Each child catches its own failure so one crash can't drop the whole batch.
                 coroutineScope {
@@ -778,6 +809,45 @@ class ChatViewModel(
         val tool = registry.find(tc.function.name)
             ?: return ToolOutcome("未知工具：${tc.function.name}", ToolStatus.ERROR, null)
 
+        // ask_user 不是普通工具：弹出内联选项卡片、挂起等用户点选，把选择回喂给模型。不受执行模式影响，
+        // 也不走超时/重复保护（它本就该一直等用户）。
+        if (tc.function.name == "ask_user") {
+            val a = try {
+                argJson.parseToJsonElement(tc.function.arguments).jsonObject
+            } catch (_: Exception) {
+                return ToolOutcome("ask_user 参数不是合法 JSON。请只输出严格合法的 JSON 后重试。", ToolStatus.ERROR, null)
+            }
+            val question = a.str("question").trim()
+            val options = a["options"]?.jsonArray
+                ?.mapNotNull { (it as? JsonPrimitive)?.contentOrNull?.trim()?.ifBlank { null } }
+                ?.distinct()
+                ?: emptyList()
+            if (question.isBlank() || options.isEmpty()) {
+                return ToolOutcome("ask_user 需要 question 和至少一个 option。请补全后重试。", ToolStatus.ERROR, null)
+            }
+            // Bypasses the generic repeat-guard above (it returns early), so apply our own: stop a stubborn
+            // model from re-popping the same card endlessly (each raise blocks the turn for up to 5 min).
+            if (checkRepeat) {
+                val sig = "ask_user|" + normalizeArgs(tc.function.arguments)
+                val n = (repeatCounts[sig] ?: 0) + 1
+                repeatCounts[sig] = n
+                if (n >= 3) {
+                    return ToolOutcome(
+                        "（已多次就同一问题弹出选项卡片，请不要再调用 ask_user，直接基于已有信息继续作答。）",
+                        ToolStatus.DENIED, null
+                    )
+                }
+            }
+            val choice = PendingChoice(
+                id = ++choiceSeq,
+                question = question,
+                options = options.take(6),
+                multiSelect = a.boolOr("multi_select", false),
+                allowOther = a.boolOr("allow_other", true)
+            )
+            return ToolOutcome(awaitUserChoice(choice), ToolStatus.DONE, null)
+        }
+
         if (checkRepeat) {
             val sig = tc.function.name + "|" + normalizeArgs(tc.function.arguments)
             val n = (repeatCounts[sig] ?: 0) + 1
@@ -873,6 +943,25 @@ class ChatViewModel(
         return ok
     }
 
+    /** Show an inline 选项卡片 and suspend until the user picks (or dismisses / times out). Returns the
+     *  result string fed back to the model. */
+    private suspend fun awaitUserChoice(choice: PendingChoice): String {
+        val deferred = CompletableDeferred<String?>()
+        choiceDeferred = deferred
+        _uiState.update { it.copy(pendingChoice = choice) }
+        val picked = try {
+            withTimeoutOrNull(CHOICE_TIMEOUT_MS) { deferred.await() }
+        } finally {
+            // Always clear the card — even if the turn is cancelled (Stop / process death) at the await.
+            _uiState.update { if (it.pendingChoice?.id == choice.id) it.copy(pendingChoice = null) else it }
+            choiceDeferred = null
+        }
+        return when {
+            picked.isNullOrBlank() -> "（用户未在选项卡片中作选择（跳过/超时）。请基于已有信息继续，或换个更简单的方式询问，不要重复弹出同一张卡片。）"
+            else -> "用户选择：$picked"
+        }
+    }
+
     private fun addRunToGroup(groupId: Long, run: ToolRun) {
         _uiState.update { st ->
             st.copy(messages = st.messages.map {
@@ -946,6 +1035,7 @@ class ChatViewModel(
     override fun onCleared() {
         super.onCleared()
         confirmDeferred?.complete(false)
+        choiceDeferred?.complete(null)
         streamJob?.cancel()
     }
 
@@ -964,6 +1054,8 @@ class ChatViewModel(
         private const val TOOL_TIMEOUT_MS = 60_000L
         /** How long to wait for the user to confirm a tool before treating it as declined. */
         private const val CONFIRM_TIMEOUT_MS = 120_000L
+        /** How long to wait for the user to pick from an inline 选项卡片 (ask_user) before giving up. */
+        private const val CHOICE_TIMEOUT_MS = 300_000L
         /** Min gap between auto-memory extractions (0 = run on every qualifying turn). */
         private const val AUTO_MEMORY_MIN_INTERVAL_MS = 0L
         private const val MAX_TOOL_RESULT_CHARS = 12000
@@ -986,6 +1078,7 @@ class ChatViewModel(
             - 说到就做：你说要做某件事，就立即发起对应的工具调用；不要只描述意图（“我需要查一下…”“接下来我会搜索…”）然后就停住。每一条回复要么带着推进任务的工具调用，要么给出最终答案，不要停在半路。
             - 不要轻易放弃：工具返回空结果或结果不理想时，换参数或换工具至少再试一次，别一次失败就停。
             - 别为确认而多问：问题有明显默认理解时直接动手。例如“看看我手机还剩多少空间”就直接调 device_info；“今天天气”就直接联网查；不要反问“你指哪台设备/哪个城市”这类显而易见的问题。只有在真的会产生歧义或有风险时才确认。
+            - 缺关键信息且无明显默认时，优先用 ask_user 列选项让用户点选，别用纯文字反问。典型场景：用户说“帮我查点资料/调研一下”却没说方向、用途、范围或深度——这时调 ask_user 给 2~5 个候选项（按需 multi_select 多选、默认带「其它」），用户点一下就能继续。一次只问一个最关键的问题；信息已够或属上一条“显而易见”的情形时，绝不要调，直接动手。
             - 绝不编造：拿不到就如实说拿不到，绝不用看似合理但虚构的内容冒充真实结果（假数据、编造的文件内容、伪造的链接或接口返回）。诚实报告卡在哪里，永远好过编一个答案。
 
             【其它工具】

@@ -221,6 +221,7 @@ private fun AiAvatar() {
 private fun friendlyPhrase(names: List<String>): String {
     val n = names.toSet()
     return when {
+        n.any { it == "ask_user" } -> "等你选择"
         n.any { it in setOf("web_search", "fetch_url", "http_request") } -> "查询资料"
         n.any { it == "list_files" || it == "find_files" || it.endsWith("_file") } -> "处理本机文件"
         n.any { it in setOf("device_info", "get_location", "read_calendar", "search_contacts", "get_clipboard", "find_app") } -> "查询本机信息"
