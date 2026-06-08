@@ -33,7 +33,9 @@ data class MessageEntity(
     val role: String,
     val content: String,
     val reasoning: String? = null,
-    val createdAt: Long
+    val createdAt: Long,
+    /** Serialized List<ToolRun> when this row is an agent tool-call group (content blank); null otherwise. */
+    val toolRunsJson: String? = null
 )
 
 /** An auto-detected to-do, distilled by AI from an incoming notification. */

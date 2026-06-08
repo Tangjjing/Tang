@@ -25,6 +25,7 @@ class SettingsViewModel(private val settings: SettingsRepository) : ViewModel() 
     val temperature: StateFlow<Float> = settings.temperature
     val systemPrompt: StateFlow<String> = settings.systemPrompt
     val theme: StateFlow<ThemeMode> = settings.theme
+    val keystoreFailed: StateFlow<Boolean> = settings.keystoreFailed
 
     val agentEnabled: StateFlow<Boolean> = settings.agentEnabled
     val executionMode: StateFlow<ExecutionMode> = settings.executionMode

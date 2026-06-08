@@ -117,9 +117,11 @@ data class MemoryOpResult(
     val updatedTitles: List<String> = emptyList()
 )
 
+@Serializable
 enum class ToolStatus { RUNNING, DONE, ERROR, DENIED }
 
 /** One tool invocation within a tool-call group. */
+@Serializable
 data class ToolRun(
     val id: Long,
     val name: String,

@@ -93,6 +93,18 @@ class ChatRepository(
         )
     )
 
+    /** Persist an agent tool-call group as its own row (content blank, tools serialized) so the
+     *  "what tools ran" history survives a conversation reload. Ordered before the final answer. */
+    suspend fun addToolGroup(conversationId: Long, toolRunsJson: String): Long = dao.insertMessage(
+        MessageEntity(
+            conversationId = conversationId,
+            role = Role.ASSISTANT.apiValue,
+            content = "",
+            toolRunsJson = toolRunsJson,
+            createdAt = System.currentTimeMillis()
+        )
+    )
+
     suspend fun renameConversation(id: Long, title: String) =
         dao.updateConversationMeta(id, title, System.currentTimeMillis())
 

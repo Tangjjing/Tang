@@ -37,6 +37,11 @@ enum class ThemeMode(val key: String) {
  */
 class SettingsRepository(context: Context) {
 
+    private val _keystoreFailed = MutableStateFlow(false)
+    /** True if EncryptedSharedPreferences init failed and we fell back to PLAINTEXT prefs — settings
+     *  (incl. API keys) are then stored unencrypted, so the UI surfaces a warning instead of silently. */
+    val keystoreFailed: StateFlow<Boolean> = _keystoreFailed.asStateFlow()
+
     private val prefs: SharedPreferences = try {
         val masterKey = MasterKey.Builder(context)
             .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
@@ -49,7 +54,9 @@ class SettingsRepository(context: Context) {
             EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
         )
     } catch (e: Exception) {
-        // Rare Keystore failures on some devices — fall back to plain prefs so the app still runs.
+        // Rare Keystore failures on some devices — fall back to plain prefs so the app still runs,
+        // but flag it so the user is warned their settings are no longer encrypted at rest.
+        _keystoreFailed.value = true
         context.getSharedPreferences("ds_prefs_fallback", Context.MODE_PRIVATE)
     }
 

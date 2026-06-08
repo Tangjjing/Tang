@@ -3,9 +3,11 @@
 package com.dschat.app.ui.settings
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.filled.Computer
@@ -15,14 +17,18 @@ import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.NotificationsActive
 import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material.icons.filled.WarningAmber
 import androidx.compose.material.icons.filled.WbSunny
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -44,8 +50,29 @@ fun SettingsScreen(
     onOpenPc: () -> Unit
 ) {
     val theme by viewModel.theme.collectAsStateWithLifecycle()
+    val keystoreFailed by viewModel.keystoreFailed.collectAsStateWithLifecycle()
 
     SettingsSubScreen("设置", onBack) {
+        if (keystoreFailed) {
+            Surface(
+                color = MaterialTheme.colorScheme.surfaceVariant,
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.WarningAmber, contentDescription = null, tint = MaterialTheme.colorScheme.error)
+                    Column(Modifier.padding(start = 10.dp)) {
+                        Text("密钥库不可用", fontSize = 14.sp, color = MaterialTheme.colorScheme.error)
+                        Text(
+                            "本机密钥库初始化失败，设置（含 API Key）以未加密方式保存，存在泄露风险。建议重启，或更换设备后重新填写密钥。",
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            lineHeight = 16.sp
+                        )
+                    }
+                }
+            }
+        }
         SectionTitle("模型与对话")
         NavRow(Icons.Default.Tune, "模型管理", "增删模型，为每个模型填接口地址与 Key", onOpenModels)
         NavRow(Icons.AutoMirrored.Filled.Chat, "对话设置", "温度、全局系统提示词", onOpenChatParams)
@@ -70,7 +97,7 @@ fun SettingsScreen(
 
         HorizontalDivider(Modifier.padding(top = 8.dp))
         Text(
-            "Tang · by Lxl · v2.7 · 多模型 AI 助手 · 数据仅存本机",
+            "Tang · by Lxl · v2.8 · 多模型 AI 助手 · 数据仅存本机",
             fontSize = 11.sp,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )

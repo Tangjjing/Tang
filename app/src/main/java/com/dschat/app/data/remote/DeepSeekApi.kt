@@ -1,7 +1,9 @@
 package com.dschat.app.data.remote
 
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
@@ -72,82 +74,107 @@ class DeepSeekApi {
             .post(requestBody)
             .build()
 
-        // Track whether the stream terminated properly ([DONE] or a finish_reason), so an early socket
-        // drop mid-answer isn't silently treated as a complete reply (common on flaky mobile networks).
+        val factory = EventSources.createFactory(client)
+        // Connection-level retry: gotContent/gotReasoning are shared across attempts, so once ANY token
+        // has reached the UI we never retry (streamed text is never duplicated). Failures BEFORE the first
+        // token (connect refused / 429 / 5xx — common on flaky mobile networks) reconnect silently.
         var gotContent = false
-        var properlyClosed = false
-        var finishReason: String? = null
-        val listener = object : EventSourceListener() {
-            override fun onEvent(
-                eventSource: EventSource,
-                id: String?,
-                type: String?,
-                data: String
-            ) {
-                if (data == "[DONE]") {
-                    properlyClosed = true
-                    trySend(StreamEvent.Done)
-                    return
-                }
-                try {
-                    val chunk = json.decodeFromString(StreamChunk.serializer(), data)
-                    chunk.usage?.let { trySend(StreamEvent.Usage(it.promptTokens, it.completionTokens)) }
-                    val choice = chunk.choices.firstOrNull() ?: return
-                    choice.finishReason?.let { finishReason = it; properlyClosed = true }
-                    choice.delta.reasoningContent?.let {
-                        if (it.isNotEmpty()) trySend(StreamEvent.Reasoning(it))
-                    }
-                    choice.delta.content?.let {
-                        if (it.isNotEmpty()) { gotContent = true; trySend(StreamEvent.Content(it)) }
-                    }
-                } catch (_: Exception) {
-                    // Ignore keep-alive / non-JSON lines.
-                }
-            }
+        var gotReasoning = false
+        var usageSent = false
+        var attempt = 0
+        var currentSource: EventSource? = null
+        var reconnectJob: Job? = null
 
-            override fun onClosed(eventSource: EventSource) {
-                // Closed without [DONE]/finish_reason after streaming content → likely cut off.
-                if (gotContent && !properlyClosed) trySend(StreamEvent.Content(TRUNCATION_NOTE))
-                else if (finishReason == "length") trySend(StreamEvent.Content(LENGTH_NOTE))
-                trySend(StreamEvent.Done)
-                close()
-            }
-
-            override fun onFailure(
-                eventSource: EventSource,
-                t: Throwable?,
-                response: Response?
-            ) {
-                val msg = buildString {
-                    if (response != null) {
-                        append("HTTP ").append(response.code)
-                        val body = try {
-                            response.body?.string()
-                        } catch (_: Exception) {
-                            null
+        fun connect() {
+            currentSource?.cancel() // drop the prior (failed) source before reconnecting, so they never overlap
+            // Per-attempt: whether THIS connection ended cleanly ([DONE]/finish_reason) and its finish reason.
+            var properlyClosed = false
+            var finishReason: String? = null
+            val listener = object : EventSourceListener() {
+                override fun onEvent(
+                    eventSource: EventSource,
+                    id: String?,
+                    type: String?,
+                    data: String
+                ) {
+                    if (data == "[DONE]") {
+                        properlyClosed = true
+                        trySend(StreamEvent.Done)
+                        return
+                    }
+                    try {
+                        val chunk = json.decodeFromString(StreamChunk.serializer(), data)
+                        // Emit usage at most once across attempts (a reconnect could re-send it → double-count).
+                        chunk.usage?.let { if (!usageSent) { usageSent = true; trySend(StreamEvent.Usage(it.promptTokens, it.completionTokens)) } }
+                        val choice = chunk.choices.firstOrNull() ?: return
+                        choice.finishReason?.let { finishReason = it; properlyClosed = true }
+                        choice.delta.reasoningContent?.let {
+                            if (it.isNotEmpty()) { gotReasoning = true; trySend(StreamEvent.Reasoning(it)) }
                         }
-                        if (!body.isNullOrBlank()) {
-                            val parsed = try {
-                                json.decodeFromString(ApiErrorEnvelope.serializer(), body).error?.message
+                        choice.delta.content?.let {
+                            if (it.isNotEmpty()) { gotContent = true; trySend(StreamEvent.Content(it)) }
+                        }
+                    } catch (_: Exception) {
+                        // Ignore keep-alive / non-JSON lines.
+                    }
+                }
+
+                override fun onClosed(eventSource: EventSource) {
+                    // Closed without [DONE]/finish_reason after streaming content → likely cut off.
+                    if (gotContent && !properlyClosed) trySend(StreamEvent.Content(TRUNCATION_NOTE))
+                    else if (finishReason == "length") trySend(StreamEvent.Content(LENGTH_NOTE))
+                    trySend(StreamEvent.Done)
+                    close()
+                }
+
+                override fun onFailure(
+                    eventSource: EventSource,
+                    t: Throwable?,
+                    response: Response?
+                ) {
+                    // Retry only failures BEFORE any token: network drop (response==null) / 429 / 5xx.
+                    val code = response?.code
+                    val retryable = !gotContent && !gotReasoning && attempt < MAX_RETRIES - 1 &&
+                        (response == null || code == 429 || code in 500..599)
+                    if (retryable) {
+                        val delayMs = response?.header("Retry-After")?.toLongOrNull()?.coerceIn(0, 10)?.times(1000L)
+                            ?: (600L * (attempt + 1))
+                        try { response?.close() } catch (_: Exception) {}
+                        attempt++
+                        reconnectJob = launch { delay(delayMs); connect() }
+                        return
+                    }
+                    val msg = buildString {
+                        if (response != null) {
+                            append("HTTP ").append(response.code)
+                            val body = try {
+                                response.body?.string()
                             } catch (_: Exception) {
                                 null
                             }
-                            append(": ").append(parsed ?: body.take(300))
+                            if (!body.isNullOrBlank()) {
+                                val parsed = try {
+                                    json.decodeFromString(ApiErrorEnvelope.serializer(), body).error?.message
+                                } catch (_: Exception) {
+                                    null
+                                }
+                                append(": ").append(parsed ?: body.take(300))
+                            }
+                        } else {
+                            append(t?.message ?: "网络连接失败")
                         }
-                    } else {
-                        append(t?.message ?: "网络连接失败")
                     }
+                    // Salvage a partial answer with a truncation note instead of discarding/silently keeping it.
+                    if (gotContent) trySend(StreamEvent.Content(TRUNCATION_NOTE))
+                    trySend(StreamEvent.Error(msg))
+                    close()
                 }
-                // Salvage a partial answer with a truncation note instead of discarding/silently keeping it.
-                if (gotContent) trySend(StreamEvent.Content(TRUNCATION_NOTE))
-                trySend(StreamEvent.Error(msg))
-                close()
             }
+            currentSource = factory.newEventSource(request, listener)
         }
 
-        val factory = EventSources.createFactory(client)
-        val eventSource = factory.newEventSource(request, listener)
-        awaitClose { eventSource.cancel() }
+        connect()
+        awaitClose { reconnectJob?.cancel(); currentSource?.cancel() }
     }.buffer(Channel.UNLIMITED)
 
     /** Fetches the available model ids from {baseUrl}/models (OpenAI-compatible). */

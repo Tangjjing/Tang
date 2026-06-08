@@ -41,6 +41,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
@@ -105,6 +106,8 @@ class ChatViewModel(
     private var lastUserText: String = ""
     private var lastExtractAt: Long = 0L
     private val argJson = Json { ignoreUnknownKeys = true; isLenient = true }
+    private val toolJson = Json { ignoreUnknownKeys = true; encodeDefaults = true }
+    private val toolRunListSerializer = ListSerializer(ToolRun.serializer())
 
     init {
         viewModelScope.launch {
@@ -184,7 +187,21 @@ class ChatViewModel(
         savedState[KEY_CONV] = id
         viewModelScope.launch {
             val msgs = repo.getMessages(id).map { e ->
-                UiMessage(id = e.id, role = Role.fromApi(e.role), content = e.content, reasoning = e.reasoning)
+                if (e.toolRunsJson != null) {
+                    // A persisted agent tool-call group → rebuild its ToolRun cards (content stays blank).
+                    // A run still RUNNING when persisted (process killed mid-tool) would show a frozen spinner
+                    // on reload, so mark it interrupted.
+                    val runs = try {
+                        toolJson.decodeFromString(toolRunListSerializer, e.toolRunsJson).map { r ->
+                            if (r.status == ToolStatus.RUNNING)
+                                r.copy(status = ToolStatus.ERROR, result = (r.result ?: "") + "（进程中断，未完成）")
+                            else r
+                        }
+                    } catch (_: Exception) { emptyList() }
+                    UiMessage(id = e.id, role = Role.fromApi(e.role), content = "", tools = runs)
+                } else {
+                    UiMessage(id = e.id, role = Role.fromApi(e.role), content = e.content, reasoning = e.reasoning)
+                }
             }
             val conv = repo.getConversation(id)
             // Per-conversation model: restore this conversation's own model (don't touch others).
@@ -630,11 +647,33 @@ class ChatViewModel(
     }
 
     private suspend fun finishAnswer(conversationId: Long, content: String, reasoning: String?, genMillis: Long? = null) {
-        val savedId = repo.addMessage(conversationId, Role.ASSISTANT, content, reasoning)
-        // Only touch the visible list if this is still the active conversation (a salvage after the
-        // user navigated away persists to the old conversation's DB but must not inject a stray bubble).
-        if (_uiState.value.conversationId == conversationId) {
-            _uiState.update { it.copy(messages = it.messages + UiMessage(savedId, Role.ASSISTANT, content, reasoning = reasoning, genMillis = genMillis)) }
+        // Finalize atomically: once persisting starts, a Stop/process-kill must NOT interrupt between the
+        // tool-group rows and the answer row — that would orphan groups or let the salvage path re-insert
+        // them (double-persist). NonCancellable makes the whole finalize all-or-nothing.
+        withContext(NonCancellable) {
+            // Only touch the visible list / persist groups if this is still the active conversation (a salvage
+            // after the user navigated away persists to the old conversation's DB but must not inject a bubble).
+            val isActive = _uiState.value.conversationId == conversationId
+            // H: persist this turn's tool-call groups (still in-memory with temp negative ids) as their own
+            // rows BEFORE the answer, so a reload shows "what tools ran" in order. The id < 0 filter also keeps
+            // this idempotent (already-persisted groups have positive ids).
+            if (isActive) {
+                val pendingGroups = _uiState.value.messages.filter { it.tools != null && it.id < 0 }
+                if (pendingGroups.isNotEmpty()) {
+                    val idMap = HashMap<Long, Long>()
+                    for (g in pendingGroups) {
+                        val js = toolJson.encodeToString(toolRunListSerializer, g.tools.orEmpty())
+                        idMap[g.id] = repo.addToolGroup(conversationId, js)
+                    }
+                    _uiState.update { st ->
+                        st.copy(messages = st.messages.map { m -> idMap[m.id]?.let { m.copy(id = it) } ?: m })
+                    }
+                }
+            }
+            val savedId = repo.addMessage(conversationId, Role.ASSISTANT, content, reasoning)
+            if (isActive) {
+                _uiState.update { it.copy(messages = it.messages + UiMessage(savedId, Role.ASSISTANT, content, reasoning = reasoning, genMillis = genMillis)) }
+            }
         }
     }
 
