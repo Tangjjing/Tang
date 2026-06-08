@@ -138,6 +138,11 @@ class ChatViewModel(
 
     fun updateInput(text: String) = _uiState.update { it.copy(input = text) }
 
+    /** Append dictated/voice text to whatever's already typed (space-separated). */
+    fun appendInput(text: String) = _uiState.update {
+        it.copy(input = if (it.input.isBlank()) text else it.input.trimEnd() + " " + text)
+    }
+
     /** Fill the input with a starter suggestion and send it immediately. */
     fun sendQuick(text: String) {
         _uiState.update { it.copy(input = text) }
@@ -160,6 +165,10 @@ class ChatViewModel(
     fun setAgentEnabled(enabled: Boolean) = settings.setAgentEnabled(enabled)
 
     fun setExecutionMode(mode: ExecutionMode) = settings.setExecutionMode(mode)
+
+    fun setConversationPinned(id: Long, pinned: Boolean) {
+        viewModelScope.launch { repo.updateConversationPinned(id, pinned) }
+    }
 
     fun resolveTool(approve: Boolean) {
         confirmDeferred?.complete(approve)

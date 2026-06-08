@@ -27,6 +27,7 @@ import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Psychology
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -75,12 +76,13 @@ fun MessageBubble(
     message: UiMessage,
     onManageMemory: () -> Unit = {},
     onRegenerate: (Long) -> Unit = {},
-    onEdit: (Long) -> Unit = {}
+    onEdit: (Long) -> Unit = {},
+    onSpeak: (String) -> Unit = {}
 ) {
     when {
         message.tools != null -> ToolGroupCard(message.tools)
         message.role == Role.USER -> UserBubble(message, onEdit)
-        else -> AssistantMessage(message, onManageMemory, onRegenerate)
+        else -> AssistantMessage(message, onManageMemory, onRegenerate, onSpeak)
     }
 }
 
@@ -145,7 +147,7 @@ private fun UserBubble(message: UiMessage, onEdit: (Long) -> Unit = {}) {
 }
 
 @Composable
-private fun AssistantMessage(message: UiMessage, onManageMemory: () -> Unit = {}, onRegenerate: (Long) -> Unit = {}) {
+private fun AssistantMessage(message: UiMessage, onManageMemory: () -> Unit = {}, onRegenerate: (Long) -> Unit = {}, onSpeak: (String) -> Unit = {}) {
     Column(modifier = Modifier.fillMaxWidth()) {
         // AI avatar on its own line; the reply text flows full-width beneath it (no horizontal waste).
         if (!message.transient) {
@@ -179,7 +181,7 @@ private fun AssistantMessage(message: UiMessage, onManageMemory: () -> Unit = {}
             else -> AiSurface {
                 Column {
                     MarkdownText(markdown = message.content, color = MaterialTheme.colorScheme.onSurface)
-                    AssistantActions(message.content) { onRegenerate(message.id) }
+                    AssistantActions(message.content, onSpeak = { onSpeak(message.content) }) { onRegenerate(message.id) }
                     GenInfoCaption(message)
                     message.memoryCaptured?.takeIf { it.isNotEmpty() }?.let { MemoryCapturedRow(it, onManageMemory) }
                 }
@@ -416,7 +418,7 @@ private fun ErrorBubble(text: String) {
 
 /** Actions under a finished AI reply: 复制（带「已复制 ✓」反馈）+ 重新生成. */
 @Composable
-private fun AssistantActions(content: String, onRegenerate: () -> Unit) {
+private fun AssistantActions(content: String, onSpeak: () -> Unit, onRegenerate: () -> Unit) {
     val clipboard = LocalClipboardManager.current
     var copied by remember { mutableStateOf(false) }
     LaunchedEffect(copied) { if (copied) { delay(1500); copied = false } }
@@ -452,6 +454,19 @@ private fun AssistantActions(content: String, onRegenerate: () -> Unit) {
         ) {
             Icon(Icons.Default.Refresh, contentDescription = "重新生成", modifier = Modifier.size(13.dp), tint = muted)
             Text("  重新生成", fontSize = 11.sp, color = muted)
+        }
+        Spacer(Modifier.width(8.dp))
+        Row(
+            modifier = Modifier
+                .minimumInteractiveComponentSize()
+                .clip(RoundedCornerShape(8.dp))
+                .clickable { onSpeak() }
+                .semantics { role = androidx.compose.ui.semantics.Role.Button }
+                .padding(horizontal = 4.dp, vertical = 3.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(Icons.Default.VolumeUp, contentDescription = "朗读", modifier = Modifier.size(13.dp), tint = muted)
+            Text("  朗读", fontSize = 11.sp, color = muted)
         }
     }
 }

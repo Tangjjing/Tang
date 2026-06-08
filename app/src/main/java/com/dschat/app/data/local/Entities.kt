@@ -12,7 +12,9 @@ data class ConversationEntity(
     val model: String,
     val systemPrompt: String? = null,
     val createdAt: Long,
-    val updatedAt: Long
+    val updatedAt: Long,
+    /** Pinned conversations sort to the top of the history list. */
+    val pinned: Boolean = false
 )
 
 @Entity(

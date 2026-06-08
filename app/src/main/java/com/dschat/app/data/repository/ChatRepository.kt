@@ -111,6 +111,9 @@ class ChatRepository(
     suspend fun touchConversation(id: Long) =
         dao.touchConversation(id, System.currentTimeMillis())
 
+    suspend fun updateConversationPinned(id: Long, pinned: Boolean) =
+        dao.updateConversationPinned(id, pinned)
+
     suspend fun deleteConversation(id: Long) = dao.deleteConversation(id)
 
     /** Drop every message after [afterId] (keeps it) — used by 重新生成. */

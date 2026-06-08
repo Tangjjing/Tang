@@ -8,7 +8,7 @@ import kotlinx.coroutines.flow.Flow
 @Dao
 interface ChatDao {
 
-    @Query("SELECT * FROM conversations ORDER BY updatedAt DESC")
+    @Query("SELECT * FROM conversations ORDER BY pinned DESC, updatedAt DESC")
     fun observeConversations(): Flow<List<ConversationEntity>>
 
     @Query("SELECT * FROM conversations WHERE id = :id")
@@ -34,6 +34,9 @@ interface ChatDao {
 
     @Query("UPDATE conversations SET updatedAt = :updatedAt WHERE id = :id")
     suspend fun touchConversation(id: Long, updatedAt: Long)
+
+    @Query("UPDATE conversations SET pinned = :pinned WHERE id = :id")
+    suspend fun updateConversationPinned(id: Long, pinned: Boolean)
 
     @Query("DELETE FROM conversations WHERE id = :id")
     suspend fun deleteConversation(id: Long)

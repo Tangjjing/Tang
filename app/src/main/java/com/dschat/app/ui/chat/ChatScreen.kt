@@ -56,8 +56,10 @@ import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.EditNote
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Psychology
+import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material.icons.filled.Stop
@@ -93,6 +95,7 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
@@ -127,12 +130,14 @@ import com.dschat.app.domain.ChatModel
 import com.dschat.app.domain.Role
 import com.dschat.app.ui.components.Base64Image
 import com.dschat.app.util.DocumentTextExtractor
+import com.dschat.app.util.Tts
 import com.dschat.app.ui.theme.BrandMark
 import com.dschat.app.ui.theme.BrandWordmark
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import android.provider.OpenableColumns
+import android.speech.RecognizerIntent
 import java.io.ByteArrayOutputStream
 
 @Composable
@@ -165,6 +170,14 @@ fun ChatScreen(
             else snackbarHostState.showSnackbar("无法读取该文件（可能是图片/二进制等暂不支持的格式）")
         }
     }
+    // Voice input via the system speech recognizer (no RECORD_AUDIO needed — the recognizer app handles it).
+    val voiceLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        val spoken = result.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()
+        if (!spoken.isNullOrBlank()) viewModel.appendInput(spoken)
+    }
+    // One TTS engine for this screen; reads a reply aloud on demand, released on dispose.
+    val tts = remember { Tts(context) }
+    DisposableEffect(Unit) { onDispose { tts.shutdown() } }
 
     // Dismiss the soft keyboard whenever the drawer opens (via the menu button OR a swipe),
     // otherwise the IME lingers over the drawer.
@@ -236,6 +249,7 @@ fun ChatScreen(
                 onDelete = { viewModel.deleteConversation(it) },
                 onRename = { id, title -> viewModel.renameConversation(id, title) },
                 onExport = { id -> scope.launch { shareText(context, viewModel.exportMarkdown(id)) } },
+                onPin = { id, pinned -> viewModel.setConversationPinned(id, pinned) },
                 onTasks = { scope.launch { drawerState.close() }; onOpenTasks() },
                 onSettings = { scope.launch { drawerState.close() }; onOpenSettings() }
             )
@@ -279,7 +293,8 @@ fun ChatScreen(
                                     it,
                                     onManageMemory = onOpenMemory,
                                     onRegenerate = viewModel::regenerate,
-                                    onEdit = viewModel::editMessage
+                                    onEdit = viewModel::editMessage,
+                                    onSpeak = { text -> tts.speak(text) }
                                 )
                             }
                         }
@@ -296,6 +311,15 @@ fun ChatScreen(
                     onStop = viewModel::stopStreaming,
                     onPickImage = { imagePicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
                     onPickFile = { filePicker.launch(arrayOf("*/*")) },
+                    onVoice = {
+                        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                            putExtra(RecognizerIntent.EXTRA_LANGUAGE, "zh-CN")
+                            putExtra(RecognizerIntent.EXTRA_PROMPT, "请说话…")
+                        }
+                        try { voiceLauncher.launch(intent) }
+                        catch (_: Exception) { scope.launch { snackbarHostState.showSnackbar("此设备没有可用的语音识别") } }
+                    },
                     onClearImage = viewModel::clearPendingImage,
                     onClearFile = viewModel::clearPendingFile
                 )
@@ -558,6 +582,7 @@ private fun HistoryDrawer(
     onDelete: (Long) -> Unit,
     onRename: (Long, String) -> Unit,
     onExport: (Long) -> Unit,
+    onPin: (Long, Boolean) -> Unit,
     onTasks: () -> Unit,
     onSettings: () -> Unit
 ) {
@@ -637,8 +662,17 @@ private fun HistoryDrawer(
                                     .weight(1f)
                                     .padding(vertical = 11.dp)
                             )
+                            if (c.pinned) {
+                                Icon(
+                                    Icons.Default.PushPin,
+                                    contentDescription = "已置顶",
+                                    modifier = Modifier.size(14.dp),
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                            }
                         }
                         DropdownMenu(expanded = menuFor == c.id, onDismissRequest = { menuFor = null }) {
+                            DropdownMenuItem(text = { Text(if (c.pinned) "取消置顶" else "置顶") }, onClick = { menuFor = null; onPin(c.id, !c.pinned) })
                             DropdownMenuItem(text = { Text("重命名") }, onClick = { menuFor = null; renaming = c })
                             DropdownMenuItem(text = { Text("导出 / 分享") }, onClick = { menuFor = null; onExport(c.id) })
                             DropdownMenuItem(text = { Text("删除") }, onClick = { menuFor = null; pendingDelete = c })
@@ -898,6 +932,7 @@ private fun InputBar(
     onStop: () -> Unit,
     onPickImage: () -> Unit,
     onPickFile: () -> Unit,
+    onVoice: () -> Unit,
     onClearImage: () -> Unit,
     onClearFile: () -> Unit
 ) {
@@ -1011,7 +1046,8 @@ private fun InputBar(
         ) {
             PlusPanel(
                 onImage = { showPlusPanel = false; onPickImage() },
-                onFile = { showPlusPanel = false; onPickFile() }
+                onFile = { showPlusPanel = false; onPickFile() },
+                onVoice = { showPlusPanel = false; onVoice() }
             )
         }
     }
@@ -1020,7 +1056,7 @@ private fun InputBar(
 /** WeChat-style "+" panel that slides up below the input (keyboard hidden), with room for future
  *  actions. The input bar rides up because this grows the bottom Column. */
 @Composable
-private fun PlusPanel(onImage: () -> Unit, onFile: () -> Unit) {
+private fun PlusPanel(onImage: () -> Unit, onFile: () -> Unit, onVoice: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -1031,7 +1067,8 @@ private fun PlusPanel(onImage: () -> Unit, onFile: () -> Unit) {
     ) {
         PlusPanelItem(Icons.Default.Image, "图片", onImage)
         PlusPanelItem(Icons.Default.Description, "文件", onFile)
-        // (空位留给以后的功能：拍照、语音、位置……)
+        PlusPanelItem(Icons.Default.Mic, "语音", onVoice)
+        // (空位留给以后的功能：拍照、位置……)
     }
 }
 
