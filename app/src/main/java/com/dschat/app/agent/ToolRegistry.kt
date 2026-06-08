@@ -3,6 +3,7 @@ package com.dschat.app.agent
 import android.content.Context
 import com.dschat.app.agent.tools.CalendarCreateTool
 import com.dschat.app.agent.tools.CalendarReadTool
+import com.dschat.app.agent.tools.AppUsageTool
 import com.dschat.app.agent.tools.MakeCallTool
 import com.dschat.app.agent.tools.SendSmsTool
 import com.dschat.app.agent.tools.ContactsTool
@@ -59,7 +60,7 @@ class ToolRegistry(context: Context, private val settings: SettingsRepository, p
         GetClipboardTool(app), SetClipboardTool(app), ShareTextTool(app),
         OpenUrlTool(app), OpenAppTool(app), FindAppTool(app),
         SetReminderTool(app), SendNotificationTool(app),
-        MakeCallTool(app), SendSmsTool(app),
+        MakeCallTool(app), SendSmsTool(app), AppUsageTool(app),
         // permissioned
         LocationTool(app), CalendarReadTool(app), CalendarCreateTool(app),
         ContactsTool(app), SetAlarmTool(app),

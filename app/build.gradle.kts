@@ -17,8 +17,8 @@ android {
         applicationId = "com.dschat.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 126
-        versionName = "2.13"
+        versionCode = 127
+        versionName = "2.14"
         vectorDrawables { useSupportLibrary = true }
 
         // Bake third-party service keys from a GITIGNORED keys.properties (never in the public repo).

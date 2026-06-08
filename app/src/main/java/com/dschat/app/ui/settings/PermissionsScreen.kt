@@ -3,6 +3,7 @@
 package com.dschat.app.ui.settings
 
 import android.Manifest
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
@@ -69,6 +70,15 @@ fun PermissionsScreen(onBack: () -> Unit) {
     }
     val callOk = remember(refresh) { granted(Manifest.permission.CALL_PHONE) }
     val smsOk = remember(refresh) { granted(Manifest.permission.SEND_SMS) }
+    val usageOk = remember(refresh) {
+        try {
+            val ops = context.getSystemService(Context.APP_OPS_SERVICE) as android.app.AppOpsManager
+            val mode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q)
+                ops.unsafeCheckOpNoThrow(android.app.AppOpsManager.OPSTR_GET_USAGE_STATS, android.os.Process.myUid(), context.packageName)
+            else @Suppress("DEPRECATION") ops.checkOpNoThrow(android.app.AppOpsManager.OPSTR_GET_USAGE_STATS, android.os.Process.myUid(), context.packageName)
+            mode == android.app.AppOpsManager.MODE_ALLOWED
+        } catch (_: Exception) { false }
+    }
 
     Scaffold(
         topBar = {
@@ -125,6 +135,13 @@ fun PermissionsScreen(onBack: () -> Unit) {
             }
             PermCard("发短信", "send_sms 的 direct=true 直接发出需要（默认只打开短信应用，无需此项）", smsOk) {
                 launcher.launch(arrayOf(Manifest.permission.SEND_SMS))
+            }
+            PermCard("使用情况访问", "app_usage 工具（查看各应用使用时长）。需在系统设置里手动开启", usageOk) {
+                try {
+                    context.startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                } catch (_: Exception) {
+                    context.startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))
+                }
             }
 
             OutlinedButton(onClick = { refresh++ }, modifier = Modifier.fillMaxWidth()) {
