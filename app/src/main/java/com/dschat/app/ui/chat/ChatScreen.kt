@@ -12,6 +12,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -104,6 +105,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
@@ -272,12 +274,14 @@ fun ChatScreen(
                             key = { it.id },
                             contentType = { if (it.tools != null) "tools" else if (it.role == Role.USER) "user" else "ai" }
                         ) {
-                            MessageBubble(
-                                it,
-                                onManageMemory = onOpenMemory,
-                                onRegenerate = viewModel::regenerate,
-                                onEdit = viewModel::editMessage
-                            )
+                            Box(Modifier.animateItem()) {
+                                MessageBubble(
+                                    it,
+                                    onManageMemory = onOpenMemory,
+                                    onRegenerate = viewModel::regenerate,
+                                    onEdit = viewModel::editMessage
+                                )
+                            }
                         }
                     }
                 }
@@ -757,34 +761,49 @@ private val SUGGESTION_POOL = listOf(
 @Composable
 private fun EmptyState(onSuggestion: (String) -> Unit, modifier: Modifier = Modifier) {
     val picks = remember { SUGGESTION_POOL.shuffled().take(4) }
+    // Gentle entrance: fade + slight rise. Animated visually (alpha/translation) so the layout stays
+    // put — no reflow/re-center jitter as items appear.
+    var visible by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) { visible = true }
+    val headerAlpha by animateFloatAsState(if (visible) 1f else 0f, tween(340), label = "emptyHeader")
     Column(
         modifier = modifier
             .fillMaxWidth()
             .padding(horizontal = 20.dp),
         verticalArrangement = Arrangement.Center
     ) {
-        BrandMark(size = 44)
-        Spacer(Modifier.size(14.dp))
-        Text(
-            "你好，今天想做什么？",
-            style = MaterialTheme.typography.headlineSmall,
-            fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.onSurface
-        )
+        Column(Modifier.graphicsLayer { alpha = headerAlpha; translationY = (1f - headerAlpha) * 28f }) {
+            BrandMark(size = 44)
+            Spacer(Modifier.size(14.dp))
+            Text(
+                "你好，今天想做什么？",
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+        }
         Spacer(Modifier.size(22.dp))
-        picks.forEach { s ->
-            SuggestionCard(s) { onSuggestion(s.prompt) }
+        picks.forEachIndexed { i, s ->
+            val a by animateFloatAsState(
+                if (visible) 1f else 0f,
+                animationSpec = tween(300, delayMillis = 90 + i * 70),
+                label = "card$i"
+            )
+            SuggestionCard(
+                s,
+                modifier = Modifier.graphicsLayer { alpha = a; translationY = (1f - a) * 28f }
+            ) { onSuggestion(s.prompt) }
             Spacer(Modifier.size(10.dp))
         }
     }
 }
 
 @Composable
-private fun SuggestionCard(s: Suggestion, onClick: () -> Unit) {
+private fun SuggestionCard(s: Suggestion, modifier: Modifier = Modifier, onClick: () -> Unit) {
     Surface(
         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
         shape = RoundedCornerShape(16.dp),
-        modifier = Modifier.fillMaxWidth().clickable { onClick() }
+        modifier = modifier.fillMaxWidth().clickable { onClick() }
     ) {
         Row(
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 15.dp),
@@ -839,13 +858,13 @@ private fun InputBar(
                     modifier = Modifier
                         .align(Alignment.TopEnd)
                         .padding(3.dp)
-                        .size(20.dp)
+                        .size(26.dp)
                         .clip(CircleShape)
                         .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
                         .clickable { onClearImage() },
                     contentAlignment = Alignment.Center
                 ) {
-                    Icon(Icons.Default.Close, "移除图片", modifier = Modifier.size(13.dp), tint = MaterialTheme.colorScheme.background)
+                    Icon(Icons.Default.Close, "移除图片", modifier = Modifier.size(15.dp), tint = MaterialTheme.colorScheme.background)
                 }
             }
         }
@@ -867,10 +886,10 @@ private fun InputBar(
                 )
                 Spacer(Modifier.width(6.dp))
                 Box(
-                    modifier = Modifier.size(18.dp).clip(CircleShape).clickable { onClearFile() },
+                    modifier = Modifier.size(26.dp).clip(CircleShape).clickable { onClearFile() },
                     contentAlignment = Alignment.Center
                 ) {
-                    Icon(Icons.Default.Close, "移除文件", modifier = Modifier.size(13.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Icon(Icons.Default.Close, "移除文件", modifier = Modifier.size(15.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
         }
@@ -906,10 +925,11 @@ private fun InputBar(
             Spacer(Modifier.width(8.dp))
             Box(
                 modifier = Modifier
-                    .size(46.dp)
+                    .size(48.dp)
                     .clip(CircleShape)
                     .background(if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant)
-                    .clickable(enabled = active) { if (isStreaming) onStop() else onSend() },
+                    .clickable(enabled = active) { if (isStreaming) onStop() else onSend() }
+                    .semantics(mergeDescendants = true) { role = androidx.compose.ui.semantics.Role.Button },
                 contentAlignment = Alignment.Center
             ) {
                 Icon(

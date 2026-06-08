@@ -2,6 +2,7 @@
 
 package com.dschat.app.ui.tasks
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -105,7 +106,9 @@ fun TasksScreen(viewModel: TasksViewModel, onBack: () -> Unit, onOpenNotify: () 
                 contentPadding = PaddingValues(16.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                items(tasks, key = { it.id }) { TaskCard(it, viewModel) }
+                items(tasks, key = { it.id }) {
+                    Box(Modifier.animateItem()) { TaskCard(it, viewModel) }
+                }
             }
         }
     }
@@ -178,9 +181,15 @@ private fun TaskCard(task: TaskEntity, vm: TasksViewModel) {
 @Composable
 private fun PriorityTag(priority: Int) {
     val label = when (priority) { 2 -> "高"; 1 -> "中"; else -> "低" }
-    val bg = if (priority == 2) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.surface
-    val fg = if (priority == 2) MaterialTheme.colorScheme.background else MaterialTheme.colorScheme.onSurfaceVariant
-    Surface(color = bg, shape = RoundedCornerShape(6.dp)) {
+    val high = priority == 2
+    // 高=实心黑底白字；中/低=描边 chip（卡片本身是 surfaceVariant，纯填充几乎看不见，故加 1dp 描边）。
+    val bg = if (high) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.surface
+    val fg = if (high) MaterialTheme.colorScheme.background else MaterialTheme.colorScheme.onSurfaceVariant
+    Surface(
+        color = bg,
+        shape = RoundedCornerShape(6.dp),
+        border = if (high) null else BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
+    ) {
         Text(
             label,
             color = fg,

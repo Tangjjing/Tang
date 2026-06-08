@@ -33,6 +33,7 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -47,6 +48,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
@@ -363,7 +370,13 @@ private fun ReasoningSection(reasoning: String, stillThinking: Boolean, startedA
 @Composable
 private fun ThinkingIndicator(startAt: Long = 0L) {
     val ms = rememberElapsedMs(running = startAt > 0L, startAt = if (startAt > 0L) startAt else System.currentTimeMillis())
-    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 2.dp)) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        // Announce a STABLE phrase to TalkBack once (not the per-0.4s ticking seconds).
+        modifier = Modifier
+            .padding(vertical = 2.dp)
+            .clearAndSetSemantics { liveRegion = LiveRegionMode.Polite; contentDescription = "正在思考" }
+    ) {
         CircularProgressIndicator(
             modifier = Modifier.size(13.dp),
             strokeWidth = 2.dp,
@@ -409,11 +422,13 @@ private fun AssistantActions(content: String, onRegenerate: () -> Unit) {
     LaunchedEffect(copied) { if (copied) { delay(1500); copied = false } }
     val copyTint = if (copied) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
     val muted = MaterialTheme.colorScheme.onSurfaceVariant
-    Row(modifier = Modifier.padding(top = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
         Row(
             modifier = Modifier
+                .minimumInteractiveComponentSize()
                 .clip(RoundedCornerShape(8.dp))
                 .clickable { clipboard.setText(AnnotatedString(content)); copied = true }
+                .semantics { role = androidx.compose.ui.semantics.Role.Button }
                 .padding(horizontal = 4.dp, vertical = 3.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -428,8 +443,10 @@ private fun AssistantActions(content: String, onRegenerate: () -> Unit) {
         Spacer(Modifier.width(8.dp))
         Row(
             modifier = Modifier
+                .minimumInteractiveComponentSize()
                 .clip(RoundedCornerShape(8.dp))
                 .clickable { onRegenerate() }
+                .semantics { role = androidx.compose.ui.semantics.Role.Button }
                 .padding(horizontal = 4.dp, vertical = 3.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -502,7 +519,9 @@ private fun GenStatusLine(startedAt: Long, content: String, reasoning: String?) 
         text = "生成中 · ${fmtSecs(ms)} · 约 ${fmtTokens(tokens)} tokens",
         fontSize = 11.sp,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
-        modifier = Modifier.padding(top = 3.dp)
+        modifier = Modifier
+            .padding(top = 3.dp)
+            .clearAndSetSemantics { liveRegion = LiveRegionMode.Polite; contentDescription = "正在生成回复" }
     )
 }
 
