@@ -44,6 +44,23 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <!-- 分享到 Tang：接收其它 app 分享的文字 / 图片 -->
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
+                <data android:mimeType="image/*" />
+            </intent-filter>
+            <!-- 划词处理：在任意 app 选中文字 → 用 Tang 处理 -->
+            <intent-filter>
+                <action android:name="android.intent.action.PROCESS_TEXT" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
+            </intent-filter>
+            <!-- 长按桌面图标的快捷方式（新对话 / 任务） -->
+            <meta-data
+                android:name="android.app.shortcuts"
+                android:resource="@xml/shortcuts" />
         </activity>
 
         <!-- Keep-alive foreground service: runs only while a chat/agent turn is generating. -->
@@ -101,6 +118,18 @@
             <meta-data
                 android:name="android.accessibilityservice"
                 android:resource="@xml/auto_send_accessibility" />
+        </service>
+
+        <!-- 下拉快捷设置磁贴：一键开新对话。 -->
+        <service
+            android:name=".ShareTileService"
+            android:exported="true"
+            android:label="@string/tile_label"
+            android:icon="@drawable/ic_tile_chat"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
         </service>
     </application>
 </manifest>

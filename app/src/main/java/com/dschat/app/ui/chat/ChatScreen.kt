@@ -124,6 +124,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.dschat.app.LaunchAction
 import com.dschat.app.agent.ExecutionMode
 import com.dschat.app.data.local.ConversationEntity
 import com.dschat.app.domain.ChatModel
@@ -146,7 +147,9 @@ fun ChatScreen(
     onOpenSettings: () -> Unit,
     onOpenModels: () -> Unit,
     onOpenTasks: () -> Unit,
-    onOpenMemory: () -> Unit = {}
+    onOpenMemory: () -> Unit = {},
+    launchAction: LaunchAction? = null,
+    onActionConsumed: () -> Unit = {}
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val conversations by viewModel.conversations.collectAsStateWithLifecycle()
@@ -178,6 +181,21 @@ fun ChatScreen(
     // One TTS engine for this screen; reads a reply aloud on demand, released on dispose.
     val tts = remember { Tts(context) }
     DisposableEffect(Unit) { onDispose { tts.shutdown() } }
+
+    // Apply an inbound 分享 / 划词 / 磁贴 / 快捷方式 action: open a fresh chat pre-filled with the shared content.
+    LaunchedEffect(launchAction) {
+        when (val a = launchAction) {
+            is LaunchAction.ShareText -> { viewModel.applyShared(a.text, null); onActionConsumed() }
+            is LaunchAction.ShareImage -> {
+                val dataUrl = withContext(Dispatchers.IO) { encodeImage(context, a.uri) }
+                viewModel.applyShared(null, dataUrl)
+                if (dataUrl == null) snackbarHostState.showSnackbar("图片读取失败")
+                onActionConsumed()
+            }
+            LaunchAction.NewChat -> { viewModel.newConversation(); onActionConsumed() }
+            else -> {}
+        }
+    }
 
     // Dismiss the soft keyboard whenever the drawer opens (via the menu button OR a swipe),
     // otherwise the IME lingers over the drawer.

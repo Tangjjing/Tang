@@ -1,5 +1,7 @@
 package com.dschat.app
 
+import android.content.Intent
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -10,8 +12,12 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.core.content.IntentCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavType
@@ -44,10 +50,16 @@ import com.dschat.app.ui.usage.UsageViewModel
 import com.dschat.app.ui.theme.DeepSeekTheme
 
 class MainActivity : ComponentActivity() {
+
+    private var launchAction by mutableStateOf<LaunchAction?>(null)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         requestHighRefreshRate()
+        // Parse the launch intent only on FIRST creation — on rotation / process recreation getIntent() still
+        // returns the original share intent, which would otherwise re-open a fresh chat on every recreation.
+        if (savedInstanceState == null) launchAction = parseLaunch(intent)
         val settings = (application as App).container.settings
         setContent {
             val themeMode by settings.theme.collectAsStateWithLifecycle()
@@ -58,7 +70,7 @@ class MainActivity : ComponentActivity() {
             }
             DeepSeekTheme(darkTheme = dark) {
                 Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-                    AppNavHost()
+                    AppNavHost(launchAction = launchAction, onActionConsumed = { launchAction = null })
                 }
             }
         }
@@ -79,16 +91,70 @@ class MainActivity : ComponentActivity() {
         } catch (_: Exception) {
         }
     }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        launchAction = parseLaunch(intent)
+    }
+
+    /** Map an inbound Intent (分享 / 划词 / 磁贴 / 快捷方式) to a one-shot LaunchAction the UI consumes then clears. */
+    private fun parseLaunch(intent: Intent?): LaunchAction? {
+        intent ?: return null
+        return when (intent.action) {
+            Intent.ACTION_SEND -> when {
+                intent.type?.startsWith("text/") == true ->
+                    (intent.getStringExtra(Intent.EXTRA_TEXT) ?: intent.getStringExtra(Intent.EXTRA_SUBJECT))
+                        ?.takeIf { it.isNotBlank() }?.let { LaunchAction.ShareText(it) }
+                intent.type?.startsWith("image/") == true ->
+                    IntentCompat.getParcelableExtra(intent, Intent.EXTRA_STREAM, Uri::class.java)
+                        ?.let { LaunchAction.ShareImage(it) }
+                else -> null
+            }
+            Intent.ACTION_PROCESS_TEXT ->
+                intent.getCharSequenceExtra(Intent.EXTRA_PROCESS_TEXT)?.toString()
+                    ?.takeIf { it.isNotBlank() }?.let { LaunchAction.ShareText(it) }
+            else -> when (intent.getStringExtra(EXTRA_TANG_ACTION)) {
+                "new_chat" -> LaunchAction.NewChat
+                "tasks" -> LaunchAction.OpenTasks
+                else -> null
+            }
+        }
+    }
+
+    companion object {
+        const val EXTRA_TANG_ACTION = "com.dschat.app.TANG_ACTION"
+    }
+}
+
+/** A one-shot action delivered by an inbound Intent (分享/划词/磁贴/快捷方式), consumed by the UI then cleared. */
+sealed interface LaunchAction {
+    data class ShareText(val text: String) : LaunchAction
+    data class ShareImage(val uri: Uri) : LaunchAction
+    data object NewChat : LaunchAction
+    data object OpenTasks : LaunchAction
 }
 
 @Composable
-private fun AppNavHost() {
+private fun AppNavHost(launchAction: LaunchAction?, onActionConsumed: () -> Unit) {
     val navController = rememberNavController()
+    // OpenTasks has no dedicated screen-consumer, so consume it here. The chat actions only route to the chat
+    // screen; ChatScreen's own LaunchedEffect is their sole consumer (applies + consumes once it composes).
+    LaunchedEffect(launchAction) {
+        when (launchAction) {
+            is LaunchAction.OpenTasks -> { navController.navigate("tasks"); onActionConsumed() }
+            is LaunchAction.ShareText, is LaunchAction.ShareImage, LaunchAction.NewChat ->
+                navController.navigate("chat") { popUpTo("chat") { inclusive = false }; launchSingleTop = true }
+            null -> {}
+        }
+    }
     NavHost(navController = navController, startDestination = "chat") {
         composable("chat") {
             val vm: ChatViewModel = viewModel(factory = AppViewModelProvider.Factory)
             ChatScreen(
                 viewModel = vm,
+                launchAction = launchAction,
+                onActionConsumed = onActionConsumed,
                 onOpenSettings = { navController.navigate("settings") },
                 onOpenModels = { navController.navigate("models") },
                 onOpenTasks = { navController.navigate("tasks") },

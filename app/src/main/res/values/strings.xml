@@ -1,4 +1,7 @@
 <resources>
     <string name="app_name">Tang</string>
     <string name="a11y_desc">开启后，Tang 才能在微信/QQ 等应用里自动替你输入并发送 AI 拟好的回复（这些应用不支持通知快捷回复，只能通过无障碍代为操作）。</string>
+    <string name="shortcut_new_chat">新对话</string>
+    <string name="shortcut_tasks">任务</string>
+    <string name="tile_label">Tang 新对话</string>
 </resources>

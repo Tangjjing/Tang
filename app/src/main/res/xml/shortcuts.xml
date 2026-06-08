@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Static launcher shortcuts. The <intent> is EXPLICIT (targetPackage + targetClass), so it needs no
+     intent category; MainActivity reads the TANG_ACTION extra to decide 新对话 vs 任务. -->
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:shortcutId="new_chat"
+        android:enabled="true"
+        android:icon="@mipmap/ic_launcher"
+        android:shortcutShortLabel="@string/shortcut_new_chat">
+        <intent
+            android:action="android.intent.action.MAIN"
+            android:targetPackage="com.dschat.app"
+            android:targetClass="com.dschat.app.MainActivity">
+            <extra android:name="com.dschat.app.TANG_ACTION" android:value="new_chat" />
+        </intent>
+    </shortcut>
+    <shortcut
+        android:shortcutId="tasks"
+        android:enabled="true"
+        android:icon="@mipmap/ic_launcher"
+        android:shortcutShortLabel="@string/shortcut_tasks">
+        <intent
+            android:action="android.intent.action.MAIN"
+            android:targetPackage="com.dschat.app"
+            android:targetClass="com.dschat.app.MainActivity">
+            <extra android:name="com.dschat.app.TANG_ACTION" android:value="tasks" />
+        </intent>
+    </shortcut>
+</shortcuts>

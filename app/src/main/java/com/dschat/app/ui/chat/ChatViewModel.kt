@@ -143,6 +143,13 @@ class ChatViewModel(
         it.copy(input = if (it.input.isBlank()) text else it.input.trimEnd() + " " + text)
     }
 
+    /** Start a FRESH conversation pre-filled with shared text and/or an attached image (Android 分享 / 划词). */
+    fun applyShared(text: String?, imageDataUrl: String?) {
+        newConversation()
+        if (!text.isNullOrBlank()) updateInput(text)
+        if (imageDataUrl != null) attachImage(imageDataUrl)
+    }
+
     /** Fill the input with a starter suggestion and send it immediately. */
     fun sendQuick(text: String) {
         _uiState.update { it.copy(input = text) }
