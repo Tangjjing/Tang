@@ -954,7 +954,8 @@ class ChatViewModel(
         private val DANGEROUS_TOOLS = setOf(
             "delete_file", "write_file",
             "pc_run", "pc_write_file", "pc_upload_file",
-            "http_request"
+            "http_request",
+            "make_call", "send_sms"
         )
         /** SavedStateHandle key: the active conversation id, restored after process death. */
         private const val KEY_CONV = "conversationId"

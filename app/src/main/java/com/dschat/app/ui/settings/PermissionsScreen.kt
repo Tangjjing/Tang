@@ -67,6 +67,8 @@ fun PermissionsScreen(onBack: () -> Unit) {
     val notifyOk = remember(refresh) {
         Build.VERSION.SDK_INT < 33 || granted("android.permission.POST_NOTIFICATIONS")
     }
+    val callOk = remember(refresh) { granted(Manifest.permission.CALL_PHONE) }
+    val smsOk = remember(refresh) { granted(Manifest.permission.SEND_SMS) }
 
     Scaffold(
         topBar = {
@@ -117,6 +119,12 @@ fun PermissionsScreen(onBack: () -> Unit) {
                 PermCard("通知", "到点提醒需要（通知助理用）", notifyOk) {
                     launcher.launch(arrayOf("android.permission.POST_NOTIFICATIONS"))
                 }
+            }
+            PermCard("打电话", "make_call 的 direct=true 直接拨出需要（默认只打开拨号盘，无需此项）", callOk) {
+                launcher.launch(arrayOf(Manifest.permission.CALL_PHONE))
+            }
+            PermCard("发短信", "send_sms 的 direct=true 直接发出需要（默认只打开短信应用，无需此项）", smsOk) {
+                launcher.launch(arrayOf(Manifest.permission.SEND_SMS))
             }
 
             OutlinedButton(onClick = { refresh++ }, modifier = Modifier.fillMaxWidth()) {
