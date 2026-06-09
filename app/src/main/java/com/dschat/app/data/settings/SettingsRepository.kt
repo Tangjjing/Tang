@@ -268,6 +268,10 @@ class SettingsRepository(context: Context) {
 
     fun hasKeyFor(modelId: String): Boolean = credsFor(modelId).first.isNotBlank()
 
+    /** Wire protocol for a model: "anthropic" (Anthropic Messages API) or "openai" (default). */
+    fun protocolFor(modelId: String): String =
+        _models.value.firstOrNull { it.id == modelId }?.protocol?.takeIf { it.isNotBlank() } ?: "openai"
+
     /** Adds a model (or updates display/flags if the id already exists). */
     fun upsertModel(model: ChatModel) {
         val list = _models.value.toMutableList()
@@ -385,6 +389,18 @@ class SettingsRepository(context: Context) {
                 }
                 if (newSel != null) prefs.edit().putString(KEY_SEL_MODEL, newSel).apply()
             }
+        }
+
+        // One-time additive: ensure the Kimi coding (Anthropic-protocol) model is present, carrying the
+        // baked KIMI_CODING_KEY if available. Purely appends — never removes/reorders existing models.
+        if (!prefs.getBoolean(KEY_KIMI_CODING_MIGRATED, false)) {
+            if (list.none { it.id == "kimi-for-coding" }) {
+                val seed = DEFAULT_MODELS.first { it.id == "kimi-for-coding" }
+                val baked = BuildConfig.KIMI_CODING_KEY.trim()
+                list = list + seed.copy(apiKey = baked.ifBlank { null })
+                changed = true
+            }
+            prefs.edit().putBoolean(KEY_KIMI_CODING_MIGRATED, true).apply()
         }
 
         if (changed) {
@@ -845,6 +861,7 @@ class SettingsRepository(context: Context) {
         private const val KEY_FLATTEN_MIGRATED = "flatten_migrated_v1"
         private const val KEY_PROVIDER_MIGRATED = "provider_migrated_v1"
         private const val KEY_TRIM_PROVIDERS = "trim_search_providers_v2"
+        private const val KEY_KIMI_CODING_MIGRATED = "kimi_coding_migrated_v1"
         private const val KEY_USAGE = "usage_stats"
         private const val KEY_SEL_MODEL = "selected_model_id"
         private const val KEY_MEMORIES = "memories_json"

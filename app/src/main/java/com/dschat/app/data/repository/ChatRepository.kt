@@ -4,6 +4,7 @@ import com.dschat.app.data.local.ChatDao
 import com.dschat.app.data.local.ConversationEntity
 import com.dschat.app.data.local.MessageEntity
 import com.dschat.app.data.remote.AgentMessage
+import com.dschat.app.data.remote.AnthropicApi
 import com.dschat.app.data.remote.ApiMessage
 import com.dschat.app.data.remote.DeepSeekApi
 import com.dschat.app.data.remote.StreamEvent
@@ -17,6 +18,7 @@ import kotlinx.serialization.json.JsonObject
 class ChatRepository(
     private val dao: ChatDao,
     private val api: DeepSeekApi,
+    private val anthropic: AnthropicApi,
     private val settings: SettingsRepository
 ) {
     fun observeConversations(): Flow<List<ConversationEntity>> = dao.observeConversations()
@@ -72,6 +74,16 @@ class ChatRepository(
         onMeta: ((finishReason: String?) -> Unit)? = null
     ): AgentMessage {
         val (key, url) = settings.credsFor(modelId)
+        // Anthropic-protocol providers (e.g. Kimi api.kimi.com/coding) speak a different wire format.
+        if (settings.protocolFor(modelId) == "anthropic") {
+            return anthropic.chatCompletion(
+                apiKey = key, baseUrl = url, model = modelId, messages = messages, tools = tools,
+                temperature = settings.temperature.value.toDouble(),
+                maxTokens = DeepSeekApi.DEFAULT_AGENT_MAX_TOKENS,
+                onUsage = { p, c -> settings.recordUsage(modelId, p, c) },
+                onMeta = onMeta
+            )
+        }
         // Only hint parallel tool calls to providers we've verified accept it; client parallelizes regardless.
         val parallel = if (tools != null && providerFromBaseUrl(url) in setOf("DeepSeek", "智谱")) true else null
         return api.chatCompletion(
@@ -137,6 +149,12 @@ class ChatRepository(
     /** Streams a chat completion. Resolves per-model key/base-URL (falls back to global). */
     fun stream(model: String, messages: List<ApiMessage>): Flow<StreamEvent> {
         val (key, url) = settings.credsFor(model)
+        if (settings.protocolFor(model) == "anthropic") {
+            return anthropic.streamChat(
+                apiKey = key, baseUrl = url, model = model, messages = messages,
+                temperature = settings.temperature.value.toDouble()
+            )
+        }
         return api.streamChat(
             apiKey = key,
             baseUrl = url,

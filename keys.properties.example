@@ -12,3 +12,6 @@ QWEATHER_HOST=
 SEARCH_KEY_BAIDU=
 SEARCH_KEY_BOCHA=
 SEARCH_KEY_METASO=
+
+# Kimi coding 端点（Anthropic 协议）chat key —— 预置到 kimi-for-coding 模型；留空则需在「模型管理」手填。
+KIMI_CODING_KEY=

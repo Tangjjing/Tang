@@ -26,7 +26,7 @@ class ModelsViewModel(
 
     fun select(id: String) = settings.selectModel(id)
 
-    fun upsert(id: String, displayName: String, reasoning: Boolean, vision: Boolean, provider: String, baseUrl: String, apiKey: String) {
+    fun upsert(id: String, displayName: String, reasoning: Boolean, vision: Boolean, provider: String, baseUrl: String, apiKey: String, protocol: String = "openai") {
         val cleanId = id.trim()
         if (cleanId.isEmpty()) return
         settings.upsertModel(
@@ -37,7 +37,8 @@ class ModelsViewModel(
                 baseUrl = baseUrl.trim().ifBlank { null },
                 apiKey = apiKey.trim().ifBlank { null },
                 vision = vision,
-                provider = provider.trim().ifBlank { providerFromBaseUrl(baseUrl) }
+                provider = provider.trim().ifBlank { providerFromBaseUrl(baseUrl) },
+                protocol = protocol
             )
         )
     }

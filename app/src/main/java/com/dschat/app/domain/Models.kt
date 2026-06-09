@@ -27,7 +27,10 @@ data class ChatModel(
     /** True if the model itself accepts images (sent as multimodal); false → local OCR/labels fallback. */
     val vision: Boolean = false,
     /** Provider/supplier label for the two-level (provider → model) picker. */
-    val provider: String = ""
+    val provider: String = "",
+    /** Wire protocol: "openai" (OpenAI-compatible /chat/completions, default) or "anthropic"
+     *  (Anthropic Messages /v1/messages — e.g. Kimi 的 api.kimi.com/coding，只认 Anthropic 格式). */
+    val protocol: String = "openai"
 )
 
 /** Infer a provider label from a base URL (for grouping + migrating older flat model lists). */
@@ -48,6 +51,8 @@ val DEFAULT_MODELS: List<ChatModel> = listOf(
     ChatModel("deepseek-v4-flash", "DeepSeek V4 Flash", reasoning = true, baseUrl = "https://api.deepseek.com", provider = "DeepSeek"),
     ChatModel("deepseek-v4-pro", "DeepSeek V4 Pro", reasoning = true, baseUrl = "https://api.deepseek.com", provider = "DeepSeek"),
     ChatModel("kimi-latest", "Kimi", baseUrl = "https://api.moonshot.cn/v1", vision = true, provider = "Kimi"),
+    // Kimi 的 coding 端点只认 Anthropic 协议（api.kimi.com/coding），key 在 keys.properties 里预置（见迁移）。
+    ChatModel("kimi-for-coding", "Kimi K2（Claude 协议）", baseUrl = "https://api.kimi.com/coding", provider = "Kimi", protocol = "anthropic"),
     ChatModel("glm-4.5", "GLM-4.5", baseUrl = "https://open.bigmodel.cn/api/paas/v4", provider = "智谱"),
     ChatModel("anthropic/claude-sonnet-4", "Claude Sonnet 4", baseUrl = "https://openrouter.ai/api/v1", vision = true, provider = "OpenRouter")
 )

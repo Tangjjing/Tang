@@ -17,8 +17,8 @@ android {
         applicationId = "com.dschat.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 129
-        versionName = "2.16"
+        versionCode = 130
+        versionName = "2.17"
         vectorDrawables { useSupportLibrary = true }
 
         // Bake third-party service keys from a GITIGNORED keys.properties (never in the public repo).
@@ -31,6 +31,7 @@ android {
         buildConfigField("String", "SEARCH_KEY_BAIDU", "\"${secret("SEARCH_KEY_BAIDU")}\"")
         buildConfigField("String", "SEARCH_KEY_BOCHA", "\"${secret("SEARCH_KEY_BOCHA")}\"")
         buildConfigField("String", "SEARCH_KEY_METASO", "\"${secret("SEARCH_KEY_METASO")}\"")
+        buildConfigField("String", "KIMI_CODING_KEY", "\"${secret("KIMI_CODING_KEY")}\"")
     }
 
     buildTypes {

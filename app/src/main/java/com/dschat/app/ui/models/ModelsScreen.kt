@@ -157,14 +157,14 @@ fun ModelsScreen(viewModel: ModelsViewModel, onBack: () -> Unit) {
         ModelEditDialog(
             initial = null,
             onDismiss = { adding = false },
-            onSave = { id, name, reasoning, vision, provider, baseUrl, apiKey -> viewModel.upsert(id, name, reasoning, vision, provider, baseUrl, apiKey); adding = false }
+            onSave = { id, name, reasoning, vision, provider, baseUrl, apiKey, protocol -> viewModel.upsert(id, name, reasoning, vision, provider, baseUrl, apiKey, protocol); adding = false }
         )
     }
     editing?.let { m ->
         ModelEditDialog(
             initial = m,
             onDismiss = { editing = null },
-            onSave = { id, name, reasoning, vision, provider, baseUrl, apiKey -> viewModel.upsert(id, name, reasoning, vision, provider, baseUrl, apiKey); editing = null }
+            onSave = { id, name, reasoning, vision, provider, baseUrl, apiKey, protocol -> viewModel.upsert(id, name, reasoning, vision, provider, baseUrl, apiKey, protocol); editing = null }
         )
     }
     if (addingProvider) {
@@ -289,7 +289,7 @@ private fun ModelRow(
 private fun ModelEditDialog(
     initial: ChatModel?,
     onDismiss: () -> Unit,
-    onSave: (id: String, name: String, reasoning: Boolean, vision: Boolean, provider: String, baseUrl: String, apiKey: String) -> Unit
+    onSave: (id: String, name: String, reasoning: Boolean, vision: Boolean, provider: String, baseUrl: String, apiKey: String, protocol: String) -> Unit
 ) {
     var id by remember { mutableStateOf(initial?.id ?: "") }
     var name by remember { mutableStateOf(initial?.displayName ?: "") }
@@ -298,6 +298,7 @@ private fun ModelEditDialog(
     var provider by remember { mutableStateOf(initial?.provider ?: "") }
     var baseUrl by remember { mutableStateOf(initial?.baseUrl ?: "") }
     var apiKey by remember { mutableStateOf(initial?.apiKey ?: "") }
+    var anthropic by remember { mutableStateOf(initial?.protocol == "anthropic") }
     val isEdit = initial != null
 
     AlertDialog(
@@ -362,10 +363,14 @@ private fun ModelEditDialog(
                     Text("支持识图（直接把图片发给它）；关闭则本机 OCR 转文字", modifier = Modifier.weight(1f), fontSize = 14.sp)
                     Switch(checked = vision, onCheckedChange = { vision = it })
                 }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("用 Anthropic 协议（Claude 的 /v1/messages 格式；如 Kimi 的 api.kimi.com/coding）", modifier = Modifier.weight(1f), fontSize = 14.sp)
+                    Switch(checked = anthropic, onCheckedChange = { anthropic = it })
+                }
             }
         },
         confirmButton = {
-            TextButton(onClick = { onSave(id, name, reasoning, vision, provider, baseUrl, apiKey) }, enabled = id.isNotBlank()) { Text("保存") }
+            TextButton(onClick = { onSave(id, name, reasoning, vision, provider, baseUrl, apiKey, if (anthropic) "anthropic" else "openai") }, enabled = id.isNotBlank()) { Text("保存") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } }
     )
