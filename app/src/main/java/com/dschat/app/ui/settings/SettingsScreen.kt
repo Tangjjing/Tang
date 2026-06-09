@@ -15,6 +15,7 @@ import androidx.compose.material.icons.filled.DataUsage
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.NotificationsActive
+import androidx.compose.material.icons.filled.ShowChart
 import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.WarningAmber
@@ -47,7 +48,8 @@ fun SettingsScreen(
     onOpenPermissions: () -> Unit,
     onOpenChatParams: () -> Unit,
     onOpenWeather: () -> Unit,
-    onOpenPc: () -> Unit
+    onOpenPc: () -> Unit,
+    onOpenPortfolio: () -> Unit
 ) {
     val theme by viewModel.theme.collectAsStateWithLifecycle()
     val keystoreFailed by viewModel.keystoreFailed.collectAsStateWithLifecycle()
@@ -82,6 +84,7 @@ fun SettingsScreen(
         NavRow(Icons.Default.SmartToy, "Agent（工具调用）", "执行模式、搜索后端、是否用 Pro", onOpenAgent)
         NavRow(Icons.Default.NotificationsActive, "通知助理", "把通知 / 截图自动变成待办与提醒", onOpenNotify)
         NavRow(Icons.Default.WbSunny, "天气", "实时天气工具 + 早间恶劣天气/突变提醒", onOpenWeather)
+        NavRow(Icons.Default.ShowChart, "我的持仓", "基金涨跌盈亏 · 每日早晚温柔播报", onOpenPortfolio)
         NavRow(Icons.Default.Computer, "电脑连接", "用 SSH 在电脑上执行命令 / 读写、互传文件", onOpenPc)
 
         SectionTitle("数据与权限")
@@ -97,7 +100,7 @@ fun SettingsScreen(
 
         HorizontalDivider(Modifier.padding(top = 8.dp))
         Text(
-            "Tang · by Lxl · v2.17 · 多模型 AI 助手 · 数据仅存本机",
+            "Tang · by Lxl · v2.18 · 多模型 AI 助手 · 数据仅存本机",
             fontSize = 11.sp,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )

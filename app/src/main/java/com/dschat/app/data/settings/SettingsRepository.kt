@@ -9,6 +9,7 @@ import com.dschat.app.agent.SearchBackend
 import com.dschat.app.BuildConfig
 import com.dschat.app.domain.ChatModel
 import com.dschat.app.domain.DEFAULT_MODELS
+import com.dschat.app.domain.Holding
 import com.dschat.app.domain.MemoryItem
 import com.dschat.app.domain.MemoryOp
 import com.dschat.app.domain.MemoryOpResult
@@ -63,6 +64,7 @@ class SettingsRepository(context: Context) {
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
     private val modelsSerializer = ListSerializer(ChatModel.serializer())
     private val memSerializer = ListSerializer(MemoryItem.serializer())
+    private val holdingsSerializer = ListSerializer(Holding.serializer())
     private val usageSerializer = MapSerializer(String.serializer(), UsageStat.serializer())
 
     // --- API connection ---
@@ -210,6 +212,18 @@ class SettingsRepository(context: Context) {
     private val _weatherMorningHour = MutableStateFlow(prefs.getInt(KEY_WEATHER_HOUR, 7))
     val weatherMorningHour: StateFlow<Int> = _weatherMorningHour.asStateFlow()
 
+    // --- Portfolio (基金/股票盯盘) ---
+    private val _holdings = MutableStateFlow(loadHoldings())
+    val holdings: StateFlow<List<Holding>> = _holdings.asStateFlow()
+    private val _portfolioEnabled = MutableStateFlow(prefs.getBoolean(KEY_PF_ENABLED, false))
+    val portfolioEnabled: StateFlow<Boolean> = _portfolioEnabled.asStateFlow()
+    private val _portfolioMorningHour = MutableStateFlow(prefs.getInt(KEY_PF_MORNING_HOUR, 8))
+    val portfolioMorningHour: StateFlow<Int> = _portfolioMorningHour.asStateFlow()
+    private val _portfolioEveningEnabled = MutableStateFlow(prefs.getBoolean(KEY_PF_EVENING_ON, true))
+    val portfolioEveningEnabled: StateFlow<Boolean> = _portfolioEveningEnabled.asStateFlow()
+    private val _portfolioEveningHour = MutableStateFlow(prefs.getInt(KEY_PF_EVENING_HOUR, 21))
+    val portfolioEveningHour: StateFlow<Int> = _portfolioEveningHour.asStateFlow()
+
     private val _disabledTools = MutableStateFlow(
         prefs.getString(KEY_DISABLED_TOOLS, "").orEmpty()
             .split("\n").filter { it.isNotBlank() }.toSet()
@@ -317,6 +331,11 @@ class SettingsRepository(context: Context) {
         var list: List<ChatModel> = if (stored.isNullOrEmpty()) DEFAULT_MODELS else stored
         var changed = stored.isNullOrEmpty()
 
+        // Skip the whole one-time migration chain once every sub-migration has run (the common case for
+        // existing installs): avoids re-reading each flag and re-evaluating its branch on every launch.
+        // NOTE: any migration added in the future must also clear KEY_MIGRATIONS_DONE (or run before it).
+        if (!prefs.getBoolean(KEY_MIGRATIONS_DONE, false)) {
+
         // v2 cleanup: drop deprecated DeepSeek ids, then add any missing new defaults.
         if (!stored.isNullOrEmpty() && !prefs.getBoolean(KEY_MODELS_MIGRATED, false)) {
             val legacy = setOf(
@@ -402,6 +421,15 @@ class SettingsRepository(context: Context) {
             }
             prefs.edit().putBoolean(KEY_KIMI_CODING_MIGRATED, true).apply()
         }
+
+        // Once all sub-migrations are settled, latch the combined gate so we skip this block next time.
+        if (prefs.getBoolean(KEY_MODELS_MIGRATED, false) && prefs.getBoolean(KEY_FLATTEN_MIGRATED, false) &&
+            prefs.getBoolean(KEY_PROVIDER_MIGRATED, false) && prefs.getBoolean(KEY_TRIM_PROVIDERS, false) &&
+            prefs.getBoolean(KEY_KIMI_CODING_MIGRATED, false)) {
+            prefs.edit().putBoolean(KEY_MIGRATIONS_DONE, true).apply()
+        }
+
+        } // end one-time migration chain
 
         if (changed) {
             prefs.edit().putString(KEY_MODELS, json.encodeToString(modelsSerializer, list)).apply()
@@ -839,6 +867,55 @@ class SettingsRepository(context: Context) {
         get() = prefs.getLong(KEY_WEATHER_CHANGE_AT, 0L)
         set(v) { prefs.edit().putLong(KEY_WEATHER_CHANGE_AT, v).apply() }
 
+    // --- Portfolio setters / CRUD ---
+    fun setPortfolioEnabled(v: Boolean) { _portfolioEnabled.value = v; prefs.edit().putBoolean(KEY_PF_ENABLED, v).apply() }
+    fun setPortfolioMorningHour(v: Int) { val h = v.coerceIn(0, 23); _portfolioMorningHour.value = h; prefs.edit().putInt(KEY_PF_MORNING_HOUR, h).apply() }
+    fun setPortfolioEveningEnabled(v: Boolean) { _portfolioEveningEnabled.value = v; prefs.edit().putBoolean(KEY_PF_EVENING_ON, v).apply() }
+    fun setPortfolioEveningHour(v: Int) { val h = v.coerceIn(0, 23); _portfolioEveningHour.value = h; prefs.edit().putInt(KEY_PF_EVENING_HOUR, h).apply() }
+
+    /** Add a holding, or update it (matched by code). */
+    fun upsertHolding(h: Holding) {
+        val list = _holdings.value.toMutableList()
+        val idx = list.indexOfFirst { it.code == h.code }
+        if (idx >= 0) list[idx] = h else list.add(h)
+        saveHoldings(list)
+    }
+
+    fun deleteHolding(code: String) { saveHoldings(_holdings.value.filterNot { it.code == code }) }
+
+    private fun saveHoldings(list: List<Holding>) {
+        _holdings.value = list
+        prefs.edit().putString(KEY_PF_HOLDINGS, json.encodeToString(holdingsSerializer, list)).apply()
+    }
+
+    /** Load holdings; on first run, seed the user's known positions once (idempotent via a flag). */
+    private fun loadHoldings(): List<Holding> {
+        val stored = try {
+            prefs.getString(KEY_PF_HOLDINGS, null)?.let { json.decodeFromString(holdingsSerializer, it) }
+        } catch (e: Exception) { null }
+        if (!prefs.getBoolean(KEY_PF_SEEDED, false) && stored.isNullOrEmpty()) {
+            // 华安黄金ETF联接C(000217)：6059.05 份、亏损 21.17% @ 净值3.1747 → 成本≈市值/0.7883；
+            // 财通集成电路产业股票C(006503)：成本1000、刚买入 @ 净值7.3384 → 份额≈1000/7.3384。
+            val seed = listOf(
+                Holding(code = "000217", name = "华安黄金ETF联接C", shares = 6059.05, cost = 24400.70),
+                Holding(code = "006503", name = "财通集成电路产业股票C", shares = 136.27, cost = 1000.0),
+            )
+            prefs.edit()
+                .putBoolean(KEY_PF_SEEDED, true)
+                .putString(KEY_PF_HOLDINGS, json.encodeToString(holdingsSerializer, seed))
+                .apply()
+            return seed
+        }
+        return stored ?: emptyList()
+    }
+
+    var lastPortfolioMorningDay: Int
+        get() = prefs.getInt(KEY_PF_MORNING_DAY, -1)
+        set(v) { prefs.edit().putInt(KEY_PF_MORNING_DAY, v).apply() }
+    var lastPortfolioEveningDay: Int
+        get() = prefs.getInt(KEY_PF_EVENING_DAY, -1)
+        set(v) { prefs.edit().putInt(KEY_PF_EVENING_DAY, v).apply() }
+
     fun isToolEnabled(name: String): Boolean = name !in _disabledTools.value
 
     fun setToolEnabled(name: String, enabled: Boolean) {
@@ -862,6 +939,9 @@ class SettingsRepository(context: Context) {
         private const val KEY_PROVIDER_MIGRATED = "provider_migrated_v1"
         private const val KEY_TRIM_PROVIDERS = "trim_search_providers_v2"
         private const val KEY_KIMI_CODING_MIGRATED = "kimi_coding_migrated_v1"
+        // Combined latch: set once all the above one-time migrations have run, so the whole chain is
+        // skipped on subsequent launches. New migrations must clear this (or run outside the gate).
+        private const val KEY_MIGRATIONS_DONE = "model_migrations_done_v1"
         private const val KEY_USAGE = "usage_stats"
         private const val KEY_SEL_MODEL = "selected_model_id"
         private const val KEY_MEMORIES = "memories_json"
@@ -908,6 +988,14 @@ class SettingsRepository(context: Context) {
         private const val KEY_WEATHER_CITY = "weather_city"
         private const val KEY_WEATHER_MONITOR = "weather_monitor"
         private const val KEY_WEATHER_HOUR = "weather_hour"
+        private const val KEY_PF_HOLDINGS = "pf_holdings_json"
+        private const val KEY_PF_SEEDED = "pf_seeded_v1"
+        private const val KEY_PF_ENABLED = "pf_enabled"
+        private const val KEY_PF_MORNING_HOUR = "pf_morning_hour"
+        private const val KEY_PF_EVENING_ON = "pf_evening_on"
+        private const val KEY_PF_EVENING_HOUR = "pf_evening_hour"
+        private const val KEY_PF_MORNING_DAY = "pf_morning_day"
+        private const val KEY_PF_EVENING_DAY = "pf_evening_day"
         private const val KEY_WEATHER_SNAPSHOT = "weather_snapshot"
         private const val KEY_WEATHER_PUSH_DAY = "weather_push_day"
         private const val KEY_WEATHER_CHANGE_AT = "weather_change_at"

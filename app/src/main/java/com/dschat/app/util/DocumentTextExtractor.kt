@@ -32,6 +32,7 @@ object DocumentTextExtractor {
     }
 
     private fun extractPdf(context: Context, uri: Uri): String? = try {
+        PdfBox.ensureInit()
         context.contentResolver.openInputStream(uri)?.use { ins ->
             PDDocument.load(ins).use { doc -> PDFTextStripper().getText(doc) }
         }

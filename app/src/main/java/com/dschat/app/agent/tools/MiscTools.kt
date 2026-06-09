@@ -5,6 +5,7 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.net.Uri
@@ -198,6 +199,94 @@ class ShareTextTool(private val context: Context) : Tool {
             "已弹出分享菜单"
         } catch (e: Exception) {
             "分享失败：${e.message}"
+        }
+    }
+}
+
+/**
+ * Known note-taking app packages — OEM 系统便签/备忘录 first, then popular third-party note apps.
+ * Used to send the note text straight into a note app (no chooser) when one is installed. Android has
+ * no universal "create note" intent, so we ride ACTION_SEND text/plain — which essentially every note
+ * app registers a receiver for — and just aim it at a note package.
+ */
+internal val NOTE_PACKAGES: List<String> = listOf(
+    "com.miui.notes",                 // 小米 / HyperOS 便签
+    "com.huawei.notepad",             // 华为 备忘录
+    "com.samsung.android.app.notes",  // 三星 Notes
+    "com.coloros.note", "com.oplus.note", "com.nearme.note", // OPPO / 一加 / realme 便签
+    "com.vivo.notes",                 // vivo 便签
+    "com.lenovo.notes",               // 联想 笔记
+    "com.android.notes",              // 部分 AOSP/定制系统便签
+    "com.google.android.keep",        // Google Keep
+    "com.microsoft.office.onenote",   // OneNote
+    "com.youdao.note",                // 有道云笔记
+    "com.evernote",                   // 印象笔记 / Evernote
+    "cn.flomoapp.app",                // flomo
+    "notion.id",                      // Notion
+)
+
+/** Pick an installed note app that can receive shared text, or null → caller falls back to a chooser. */
+private fun resolveNoteApp(pm: PackageManager, send: Intent): String? {
+    val receivers = runCatching {
+        pm.queryIntentActivities(send, 0).map { it.activityInfo.packageName }
+    }.getOrDefault(emptyList()).toSet()
+    // 1) a known note package that is also a SEND text receiver
+    NOTE_PACKAGES.firstOrNull { it in receivers }?.let { return it }
+    // 2) heuristic: any SEND receiver whose package name screams "note"
+    return receivers.firstOrNull { p ->
+        val l = p.lowercase()
+        l.contains("note") || l.contains("memo") || l.contains("jotter") || l.contains("notepad")
+    }
+}
+
+class TakeNoteTool(private val context: Context) : Tool {
+    override val name = "take_note"
+    override val description = "把一段文字记成笔记：优先直接打开系统/默认笔记 App 新建一条；识别不到笔记 App 时弹出系统分享菜单让用户选一个保存。" +
+        "用户说『帮我记个笔记』『记一下…』『备忘…』时用它——这是记笔记的正确方式，不要用 write_file 写 txt 文件。"
+    override val sideEffect = true
+    override fun parameters() = objectSchema(
+        "content" to strProp("笔记正文"),
+        "title" to strProp("笔记标题（可选）"),
+        required = listOf("content")
+    )
+
+    override suspend fun execute(args: JsonObject): String {
+        val content = args.str("content")
+        if (content.isBlank()) return "错误：笔记内容不能为空"
+        val title = args.strOrNull("title")?.trim().orEmpty()
+
+        fun newSendIntent() = Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_TEXT, content)
+            if (title.isNotEmpty()) {
+                putExtra(Intent.EXTRA_SUBJECT, title)
+                putExtra(Intent.EXTRA_TITLE, title)
+            }
+        }
+
+        val pm = context.packageManager
+        val notePkg = withContext(Dispatchers.IO) { resolveNoteApp(pm, newSendIntent()) }
+        val label = title.ifBlank { content.take(20) + if (content.length > 20) "…" else "" }
+
+        // Primary: send straight into the detected note app.
+        if (notePkg != null) {
+            try {
+                context.startActivity(newSendIntent().setPackage(notePkg).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                val appName = runCatching { pm.getApplicationLabel(pm.getApplicationInfo(notePkg, 0)).toString() }
+                    .getOrDefault(notePkg)
+                return "已在「$appName」新建一条笔记：$label"
+            } catch (_: Exception) {
+                // fall through to the chooser
+            }
+        }
+        // Fallback: system share sheet so the user picks a note app.
+        return try {
+            val chooser = Intent.createChooser(newSendIntent(), "记到笔记").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            context.startActivity(chooser)
+            if (notePkg == null) "没识别到系统笔记 App，已弹出分享菜单——请选一个笔记 App（如系统便签）保存：$label"
+            else "已弹出分享菜单，请选一个笔记 App 保存：$label"
+        } catch (e: Exception) {
+            "记笔记失败：${e.message}"
         }
     }
 }

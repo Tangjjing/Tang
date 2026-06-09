@@ -6,6 +6,7 @@ import android.net.Uri
 import android.os.Environment
 import androidx.core.content.FileProvider
 import com.dschat.app.agent.Tool
+import com.dschat.app.agent.vision.ImageTextExtractor
 import com.dschat.app.agent.arrayProp
 import com.dschat.app.agent.boolOr
 import com.dschat.app.agent.boolProp
@@ -228,6 +229,28 @@ class PdfToImagesTool(private val context: Context) : Tool {
         val note = shareMultiple(context, paths.map { File(it) }, "image/png", args.boolOr("share", true))
         val capped = if (total > paths.size) "（共 $total 页，已渲染前 ${paths.size} 页）" else ""
         return "已把「${src.name}」转换为 ${paths.size} 张图片，保存在「下载」目录$capped$note\n${paths.joinToString("\n")}"
+    }
+}
+
+// ---- 图片 → 文字（离线 OCR）----
+
+class ImageToTextTool(private val context: Context) : Tool {
+    override val name = "image_to_text"
+    override val description =
+        "对本机图片做离线 OCR 文字识别（中英文，纯本地、不联网），返回图中文字。" +
+        "用于『识别这张图里的文字』『提取截图/照片里的字』『把图片转成文字』。"
+    override val sideEffect = false
+
+    override fun parameters(): JsonObject = objectSchema(
+        "image_path" to strProp("要识别的图片的本机绝对路径（通常是用户刚发来的那张图）。"),
+        required = listOf("image_path")
+    )
+
+    override suspend fun execute(args: JsonObject): String {
+        val f = File(args.str("image_path"))
+        if (!f.exists()) return "错误：找不到图片：${f.path}"
+        val result = withContext(Dispatchers.Default) { ImageTextExtractor.extractFromFile(f.absolutePath) }
+        return result.ifBlank { "未识别到文字（图中可能没有文字，或太模糊/分辨率太低）。" }
     }
 }
 

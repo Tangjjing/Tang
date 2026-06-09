@@ -223,9 +223,11 @@ private fun friendlyPhrase(names: List<String>): String {
     return when {
         n.any { it == "ask_user" } -> "等你选择"
         n.any { it in setOf("web_search", "fetch_url", "http_request") } -> "查询资料"
-        n.any { it == "list_files" || it == "find_files" || it.endsWith("_file") } -> "处理本机文件"
+        n.any { it == "list_files" || it == "find_files" || it.endsWith("_file") || it in setOf("compress_files", "extract_archive", "image_to_text") } -> "处理本机文件"
         n.any { it in setOf("device_info", "get_location", "read_calendar", "search_contacts", "get_clipboard", "find_app") } -> "查询本机信息"
-        n.any { it in setOf("open_app", "open_url", "share_text", "set_clipboard", "set_alarm", "create_calendar_event") } -> "操作手机"
+        n.any { it == "take_note" } -> "记笔记"
+        n.any { it in setOf("portfolio_status", "add_holding", "remove_holding") } -> "看持仓"
+        n.any { it in setOf("open_app", "open_url", "share_text", "set_clipboard", "set_alarm", "set_timer", "create_calendar_event", "create_contact", "send_email", "navigate", "open_settings") } -> "操作手机"
         n.any { it in setOf("save_memory", "read_memory") } -> "整理记忆"
         n.any { it in setOf("run_javascript", "calculator") } -> "计算"
         else -> "处理任务"

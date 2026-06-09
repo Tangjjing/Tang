@@ -10,6 +10,16 @@ import com.dschat.app.agent.tools.SendSmsTool
 import com.dschat.app.agent.tools.ContactsTool
 import com.dschat.app.agent.tools.DateTimeTool
 import com.dschat.app.agent.tools.ImageToPdfTool
+import com.dschat.app.agent.tools.ImageToTextTool
+import com.dschat.app.agent.tools.CopyFileTool
+import com.dschat.app.agent.tools.MoveFileTool
+import com.dschat.app.agent.tools.CompressFilesTool
+import com.dschat.app.agent.tools.ExtractArchiveTool
+import com.dschat.app.agent.tools.SendEmailTool
+import com.dschat.app.agent.tools.NavigateTool
+import com.dschat.app.agent.tools.CreateContactTool
+import com.dschat.app.agent.tools.OpenSettingsTool
+import com.dschat.app.agent.tools.SetTimerTool
 import com.dschat.app.agent.tools.DeleteFileTool
 import com.dschat.app.agent.tools.DeviceInfoTool
 import com.dschat.app.agent.tools.DocumentToPdfTool
@@ -38,39 +48,53 @@ import com.dschat.app.agent.tools.PcWriteFileTool
 import com.dschat.app.agent.tools.ReadFileTool
 import com.dschat.app.agent.tools.ReadMemoryTool
 import com.dschat.app.agent.tools.RunJavascriptTool
+import com.dschat.app.agent.tools.PortfolioStatusTool
+import com.dschat.app.agent.tools.AddHoldingTool
+import com.dschat.app.agent.tools.RemoveHoldingTool
 import com.dschat.app.agent.tools.SaveMemoryTool
 import com.dschat.app.agent.tools.SendNotificationTool
 import com.dschat.app.agent.tools.SetAlarmTool
 import com.dschat.app.agent.tools.SetClipboardTool
 import com.dschat.app.agent.tools.SetReminderTool
 import com.dschat.app.agent.tools.ShareTextTool
+import com.dschat.app.agent.tools.TakeNoteTool
 import com.dschat.app.agent.tools.WebSearchTool
 import com.dschat.app.agent.tools.WriteFileTool
 import com.dschat.app.data.settings.SettingsRepository
 import com.dschat.app.pc.PcBridge
 import kotlinx.serialization.json.JsonObject
 
-class ToolRegistry(context: Context, private val settings: SettingsRepository, pcBridge: PcBridge) {
+class ToolRegistry(context: Context, private val settings: SettingsRepository, private val pcBridge: PcBridge) {
 
     private val app = context.applicationContext
 
-    private val all: List<Tool> = listOf(
+    // Built lazily: constructing ~50 Tool objects is pointless until the agent loop first needs them
+    // (most cold starts never enter agent mode), so keep it off the App.onCreate / container path.
+    private val all: List<Tool> by lazy { buildTools() }
+
+    private fun buildTools(): List<Tool> = listOf(
         // networking
         WebSearchTool(settings), FetchUrlTool(), FetchUrlsTool(), HttpRequestTool(), GetWeatherTool(app, settings),
         // files
         ReadFileTool(), WriteFileTool(), ListFilesTool(), DeleteFileTool(), FindFilesTool(),
+        CopyFileTool(), MoveFileTool(), CompressFilesTool(), ExtractArchiveTool(),
         // file conversion (offline, text-level for Office formats)
         ImageToPdfTool(app), DocumentToPdfTool(app), PdfToWordTool(app),
-        PdfToImagesTool(app), MergePdfsTool(app), SplitPdfTool(app),
+        PdfToImagesTool(app), MergePdfsTool(app), SplitPdfTool(app), ImageToTextTool(app),
         // memory
         SaveMemoryTool(settings), ReadMemoryTool(settings), ForgetMemoryTool(settings),
+        // portfolio (基金盯盘)
+        PortfolioStatusTool(settings), AddHoldingTool(settings), RemoveHoldingTool(settings),
         // utility
         DateTimeTool(), DeviceInfoTool(app), RunJavascriptTool(), AskUserTool(),
         // device
-        GetClipboardTool(app), SetClipboardTool(app), ShareTextTool(app),
+        GetClipboardTool(app), SetClipboardTool(app), ShareTextTool(app), TakeNoteTool(app),
         OpenUrlTool(app), OpenAppTool(app), FindAppTool(app),
         SetReminderTool(app), SendNotificationTool(app),
         MakeCallTool(app), SendSmsTool(app), AppUsageTool(app),
+        // system integration (Intent-based)
+        SendEmailTool(app), NavigateTool(app), CreateContactTool(app),
+        OpenSettingsTool(app), SetTimerTool(app),
         // permissioned
         LocationTool(app), CalendarReadTool(app), CalendarCreateTool(app),
         ContactsTool(app), SetAlarmTool(app),

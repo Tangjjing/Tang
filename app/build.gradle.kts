@@ -17,8 +17,8 @@ android {
         applicationId = "com.dschat.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 130
-        versionName = "2.17"
+        versionCode = 131
+        versionName = "2.18"
         vectorDrawables { useSupportLibrary = true }
 
         // Bake third-party service keys from a GITIGNORED keys.properties (never in the public repo).
@@ -36,7 +36,10 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            // R8 code shrinking + obfuscation + resource shrinking: smaller dex/APK, faster class
+            // loading & startup. Keep rules for the reflection-using deps live in proguard-rules.pro.
+            isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -121,6 +124,11 @@ dependencies {
 
     // Background periodic work for the proactive weather monitor (survives reboot + Doze).
     implementation("androidx.work:work-runtime-ktx:2.9.1")
+
+    // Installs ART baseline profiles at first run (dex2oat ahead-of-time compiles the hot startup +
+    // Compose paths) → faster cold start & smoother first scroll. Activates the profiles bundled in the
+    // Compose AARs plus our own src/main/baseline-prof.txt. (Release builds only.)
+    implementation("androidx.profileinstaller:profileinstaller:1.4.1")
 
     // SSH/SFTP client for "control PC" mode (maintained JSch fork; modern algos, key gen, Android-friendly).
     implementation("com.github.mwiede:jsch:0.2.21")

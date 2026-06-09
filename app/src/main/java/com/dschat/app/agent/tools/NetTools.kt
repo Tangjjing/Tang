@@ -40,7 +40,8 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 
 internal object ToolHttp {
-    val client: OkHttpClient = OkHttpClient.Builder()
+    // Derived from the shared base so the connection pool / dispatcher / thread pools are reused.
+    val client: OkHttpClient = com.dschat.app.data.remote.SharedHttp.base.newBuilder()
         .connectTimeout(20, TimeUnit.SECONDS)
         .readTimeout(40, TimeUnit.SECONDS)
         .build()

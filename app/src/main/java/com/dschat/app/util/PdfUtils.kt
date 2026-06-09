@@ -12,6 +12,7 @@ object PdfUtils {
 
     /** Render each page of [pdf] to a PNG in [outDir]; returns the written file paths (capped). */
     fun toImages(pdf: File, outDir: File, baseName: String, dpi: Float = 150f, maxPages: Int = 50): List<String> {
+        PdfBox.ensureInit()
         outDir.mkdirs()
         val out = mutableListOf<String>()
         PDDocument.load(pdf).use { doc ->
@@ -29,10 +30,11 @@ object PdfUtils {
     }
 
     /** Total page count of [pdf] (for "rendered N of M pages" notes). */
-    fun pageCount(pdf: File): Int = PDDocument.load(pdf).use { it.numberOfPages }
+    fun pageCount(pdf: File): Int { PdfBox.ensureInit(); return PDDocument.load(pdf).use { it.numberOfPages } }
 
     /** Merge [inputs] (in order) into a single [outFile]. */
     fun merge(inputs: List<File>, outFile: File) {
+        PdfBox.ensureInit()
         outFile.parentFile?.mkdirs()
         val merger = PDFMergerUtility()
         merger.destinationFileName = outFile.absolutePath
@@ -42,6 +44,7 @@ object PdfUtils {
 
     /** Write the 1-based [pages] of [pdf] into a new [outFile]. Returns how many pages were written. */
     fun extractPages(pdf: File, pages: List<Int>, outFile: File): Int {
+        PdfBox.ensureInit()
         outFile.parentFile?.mkdirs()
         PDDocument.load(pdf).use { src ->
             PDDocument().use { dst ->

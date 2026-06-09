@@ -24,6 +24,7 @@ object ImagePdfBuilder {
      * 没有任何可读图片时抛 [IllegalArgumentException]。
      */
     fun build(imagePaths: List<String>, outFile: File): Int {
+        PdfBox.ensureInit()
         val doc = PDDocument()
         try {
             var pages = 0

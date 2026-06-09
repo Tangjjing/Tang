@@ -28,6 +28,7 @@ object TextPdfBuilder {
     private const val MAX_PAGES = 300
 
     fun build(text: String, outFile: File): Int {
+        PdfBox.ensureInit()
         val paint = TextPaint().apply {
             isAntiAlias = true
             color = Color.BLACK

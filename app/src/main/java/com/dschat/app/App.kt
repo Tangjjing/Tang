@@ -11,6 +11,7 @@ import com.dschat.app.agent.tasks.ReplyEngine
 import com.dschat.app.agent.tasks.ReplyNotifier
 import com.dschat.app.agent.tasks.ScheduleNotifier
 import com.dschat.app.agent.tasks.WeatherScheduler
+import com.dschat.app.agent.tasks.PortfolioScheduler
 import com.dschat.app.agent.tasks.TaskClassifier
 import com.dschat.app.agent.tasks.TaskRepository
 import com.dschat.app.data.local.AppDatabase
@@ -47,11 +48,9 @@ class App : Application() {
         super.onCreate()
         container = AppContainer(this)
         createNotificationChannels()
-        // PdfBox-Android needs its resource loader initialised once before any PDF text extraction.
-        try {
-            com.tom_roush.pdfbox.android.PDFBoxResourceLoader.init(applicationContext)
-        } catch (_: Throwable) {
-        }
+        // PdfBox-Android's resource loader is heavy (font assets) but rarely needed — stash the context
+        // now (free) and init lazily on first PDF use instead of blocking every cold start. See PdfBox.
+        com.dschat.app.util.PdfBox.attach(this)
     }
 
     private fun createNotificationChannels() {
@@ -83,6 +82,13 @@ class App : Application() {
                 "天气提醒",
                 NotificationManager.IMPORTANCE_DEFAULT
             ).apply { description = "早间恶劣天气与天气突变提醒" }
+        )
+        nm.createNotificationChannel(
+            NotificationChannel(
+                PortfolioScheduler.CHANNEL_ID,
+                "持仓盈亏",
+                NotificationManager.IMPORTANCE_DEFAULT
+            ).apply { description = "每日基金/股票涨跌与盈亏早晚报" }
         )
         nm.createNotificationChannel(
             NotificationChannel(

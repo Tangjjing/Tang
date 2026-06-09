@@ -30,6 +30,16 @@ object ImageTextExtractor {
 
     suspend fun extract(dataUrl: String): String = withContext(Dispatchers.Default) {
         val bmp = decode(dataUrl) ?: return@withContext ""
+        runOcrAndLabel(bmp)
+    }
+
+    /** OCR a local image file by absolute path (downsamples large images first). Returns "" on failure. */
+    suspend fun extractFromFile(path: String): String = withContext(Dispatchers.Default) {
+        val bmp = decodeFile(path) ?: return@withContext ""
+        runOcrAndLabel(bmp)
+    }
+
+    private suspend fun runOcrAndLabel(bmp: Bitmap): String {
         val image = InputImage.fromBitmap(bmp, 0)
         val text = try { recognizer.process(image).awaitResult().text.trim() } catch (e: Exception) { "" }
         val labels = try {
@@ -38,13 +48,27 @@ object ImageTextExtractor {
                 .take(6)
                 .joinToString("、") { it.text }
         } catch (e: Exception) { "" }
-        buildString {
+        return buildString {
             if (text.isNotBlank()) append("图中文字：\n").append(text)
             if (labels.isNotBlank()) {
                 if (isNotEmpty()) append("\n")
                 append("画面可能包含（自动识别，英文标签）：").append(labels)
             }
         }
+    }
+
+    /** Decode a file to a Bitmap, downsampling so the longest edge is ≤ ~2200px (caps memory). */
+    private fun decodeFile(path: String): Bitmap? = try {
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeFile(path, bounds)
+        val longest = maxOf(bounds.outWidth, bounds.outHeight)
+        var sample = 1
+        while (longest / sample > 2200) sample *= 2
+        BitmapFactory.decodeFile(path, BitmapFactory.Options().apply { inSampleSize = sample })
+    } catch (e: Exception) {
+        null
+    } catch (e: OutOfMemoryError) {
+        null
     }
 
     private fun decode(dataUrl: String): Bitmap? = try {

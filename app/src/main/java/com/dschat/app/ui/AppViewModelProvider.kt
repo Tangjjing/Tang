@@ -10,6 +10,7 @@ import com.dschat.app.ui.chat.ChatViewModel
 import com.dschat.app.ui.memory.MemoryViewModel
 import com.dschat.app.ui.models.ModelsViewModel
 import com.dschat.app.ui.pc.PcViewModel
+import com.dschat.app.ui.portfolio.PortfolioViewModel
 import com.dschat.app.ui.settings.SettingsViewModel
 import com.dschat.app.ui.tasks.TasksViewModel
 import com.dschat.app.ui.usage.UsageViewModel
@@ -45,6 +46,9 @@ object AppViewModelProvider {
         }
         initializer {
             PcViewModel(app().container.settings, app().container.pcBridge)
+        }
+        initializer {
+            PortfolioViewModel(app().container.settings)
         }
     }
 }

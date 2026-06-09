@@ -25,6 +25,7 @@ class BootReceiver : BroadcastReceiver() {
             try {
                 container.taskRepository.rearmReminders()
                 if (container.settings.weatherMonitorEnabled.value) WeatherScheduler.enqueue(context)
+                if (container.settings.portfolioEnabled.value) PortfolioScheduler.enqueue(context)
             } catch (_: Exception) {
             } finally {
                 pending.finish()

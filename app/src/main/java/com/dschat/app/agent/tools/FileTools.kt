@@ -12,14 +12,38 @@ import com.dschat.app.agent.strOrNull
 import com.dschat.app.agent.ToolLimits
 import com.dschat.app.agent.capNote
 import com.dschat.app.agent.strProp
+import com.dschat.app.agent.arrayProp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
+import java.io.BufferedInputStream
+import java.io.BufferedOutputStream
 import java.io.File
+import java.io.FileInputStream
+import java.io.FileOutputStream
+import java.text.SimpleDateFormat
+import java.util.Date
 import java.util.Locale
+import java.util.zip.ZipEntry
+import java.util.zip.ZipInputStream
+import java.util.zip.ZipOutputStream
 
 private fun resolvePath(path: String): File =
     if (path.startsWith("/")) File(path) else File(Environment.getExternalStorageDirectory(), path)
+
+private fun downloadDirOf(): File =
+    File(Environment.getExternalStorageDirectory(), Environment.DIRECTORY_DOWNLOADS)
+
+private fun fileStamp(): String = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
+
+private fun pathArray(args: JsonObject, key: String): List<String> =
+    (args[key] as? JsonArray)
+        ?.mapNotNull { (it as? JsonPrimitive)?.contentOrNull?.trim() }
+        ?.filter { it.isNotEmpty() }
+        ?: emptyList()
 
 class ReadFileTool : Tool {
     override val name = "read_file"
@@ -195,5 +219,166 @@ class FindFilesTool : Tool {
             val reached = offset + top.size
             append(capNote(reached, matches.size, "，用 offset=$reached 继续翻页"))
         }.trim()
+    }
+}
+
+/** dest 为已存在目录时，把 [src] 放进去并沿用其文件名；否则就当成目标文件路径本身。 */
+private fun resolveDest(destPath: String, src: File): File {
+    val d = resolvePath(destPath)
+    return if (d.isDirectory) File(d, src.name) else d
+}
+
+class CopyFileTool : Tool {
+    override val name = "copy_file"
+    override val description = "复制文件或目录到新位置（保留原件）。dest 若是已存在的目录，则复制进该目录并沿用原名。"
+    override val sideEffect = true
+    override fun parameters() = objectSchema(
+        "source" to strProp("源文件/目录路径"),
+        "dest" to strProp("目标路径（文件路径，或一个已存在的目录）"),
+        required = listOf("source", "dest")
+    )
+
+    override suspend fun execute(args: JsonObject): String = withContext(Dispatchers.IO) {
+        val src = resolvePath(args.str("source"))
+        if (!src.exists()) return@withContext "错误：源不存在：${src.absolutePath}"
+        val dst = resolveDest(args.str("dest"), src)
+        if (src.absolutePath == dst.absolutePath) return@withContext "错误：源和目标相同。"
+        try {
+            dst.parentFile?.mkdirs()
+            if (src.isDirectory) src.copyRecursively(dst, overwrite = true)
+            else src.copyTo(dst, overwrite = true)
+            "已复制到 ${dst.absolutePath}"
+        } catch (e: Exception) {
+            "复制失败：${e.message}"
+        }
+    }
+}
+
+class MoveFileTool : Tool {
+    override val name = "move_file"
+    override val description = "移动或重命名文件/目录。重命名＝同目录给新名字；移动＝换到别的目录。dest 若是已存在目录则移动进去并保留原名。"
+    override val sideEffect = true
+    override fun parameters() = objectSchema(
+        "source" to strProp("源文件/目录路径"),
+        "dest" to strProp("目标路径（新文件名，或一个已存在的目录）"),
+        required = listOf("source", "dest")
+    )
+
+    override suspend fun execute(args: JsonObject): String = withContext(Dispatchers.IO) {
+        val src = resolvePath(args.str("source"))
+        if (!src.exists()) return@withContext "错误：源不存在：${src.absolutePath}"
+        val dst = resolveDest(args.str("dest"), src)
+        if (src.absolutePath == dst.absolutePath) return@withContext "错误：源和目标相同。"
+        try {
+            dst.parentFile?.mkdirs()
+            if (dst.exists()) dst.deleteRecursively()
+            if (src.renameTo(dst)) return@withContext "已移动到 ${dst.absolutePath}"
+            // Cross-filesystem (e.g. 不同挂载点) → 复制后删除。
+            if (src.isDirectory) src.copyRecursively(dst, overwrite = true) else src.copyTo(dst, overwrite = true)
+            src.deleteRecursively()
+            "已移动到 ${dst.absolutePath}"
+        } catch (e: Exception) {
+            "移动失败：${e.message}"
+        }
+    }
+}
+
+private const val ZIP_MAX_ENTRIES = 5000
+private const val ZIP_MAX_TOTAL_BYTES = 2L * 1024 * 1024 * 1024 // 2GB 上限，防失控
+
+class CompressFilesTool : Tool {
+    override val name = "compress_files"
+    override val description = "把若干本机文件/目录打包成一个 zip 压缩包。output_path 留空则存到「下载」目录。"
+    override val sideEffect = true
+    override fun parameters() = objectSchema(
+        "paths" to arrayProp("要压缩的文件/目录路径数组"),
+        "output_path" to strProp("可选：输出 zip 的路径；留空则存到「下载」目录、按时间命名。"),
+        required = listOf("paths")
+    )
+
+    override suspend fun execute(args: JsonObject): String = withContext(Dispatchers.IO) {
+        val inputs = pathArray(args, "paths").map { resolvePath(it) }
+        if (inputs.isEmpty()) return@withContext "错误：paths 为空。"
+        val missing = inputs.filter { !it.exists() }
+        if (missing.isNotEmpty()) return@withContext "错误：找不到：${missing.joinToString("、") { it.name }}"
+        val out = args.strOrNull("output_path")?.takeIf { it.isNotBlank() }?.let { resolvePath(it) }
+            ?: File(downloadDirOf(), "archive_${fileStamp()}.zip")
+        try {
+            out.parentFile?.mkdirs()
+            var entries = 0
+            var totalBytes = 0L
+            ZipOutputStream(BufferedOutputStream(FileOutputStream(out))).use { zos ->
+                fun addFile(file: File, entryName: String) {
+                    if (entries >= ZIP_MAX_ENTRIES) throw IllegalStateException("条目过多（上限 $ZIP_MAX_ENTRIES）")
+                    totalBytes += file.length()
+                    if (totalBytes > ZIP_MAX_TOTAL_BYTES) throw IllegalStateException("内容过大（上限 2GB）")
+                    zos.putNextEntry(ZipEntry(entryName))
+                    FileInputStream(file).use { it.copyTo(zos) }
+                    zos.closeEntry()
+                    entries++
+                }
+                fun addRecursively(file: File, base: String) {
+                    if (file.isDirectory) {
+                        val children = file.listFiles() ?: return
+                        if (children.isEmpty()) { zos.putNextEntry(ZipEntry("$base/")); zos.closeEntry() }
+                        for (c in children) addRecursively(c, "$base/${c.name}")
+                    } else addFile(file, base)
+                }
+                for (f in inputs) addRecursively(f, f.name)
+            }
+            "已压缩 $entries 个文件 → ${out.absolutePath}（约 ${out.length() / 1024}KB）"
+        } catch (e: Exception) {
+            out.delete()
+            "压缩失败：${e.message}"
+        }
+    }
+}
+
+class ExtractArchiveTool : Tool {
+    override val name = "extract_archive"
+    override val description = "解压一个 zip 压缩包到目录。dest_dir 留空则解压到压缩包同级、以包名命名的新文件夹。"
+    override val sideEffect = true
+    override fun parameters() = objectSchema(
+        "archive_path" to strProp("要解压的 zip 文件路径"),
+        "dest_dir" to strProp("可选：解压到的目标目录；留空则用压缩包同级、同名的新文件夹。"),
+        required = listOf("archive_path")
+    )
+
+    override suspend fun execute(args: JsonObject): String = withContext(Dispatchers.IO) {
+        val src = resolvePath(args.str("archive_path"))
+        if (!src.exists()) return@withContext "错误：找不到压缩包：${src.absolutePath}"
+        if (!src.name.lowercase().endsWith(".zip")) return@withContext "错误：目前仅支持 .zip 压缩包。"
+        val dest = args.strOrNull("dest_dir")?.takeIf { it.isNotBlank() }?.let { resolvePath(it) }
+            ?: File(src.parentFile, src.nameWithoutExtension)
+        try {
+            dest.mkdirs()
+            val destCanonical = dest.canonicalPath + File.separator
+            var count = 0
+            var totalBytes = 0L
+            ZipInputStream(BufferedInputStream(FileInputStream(src))).use { zis ->
+                var entry: ZipEntry? = zis.nextEntry
+                while (entry != null) {
+                    val target = File(dest, entry.name)
+                    // Zip-slip 防护：解压目标必须落在 dest 内。
+                    if (!(target.canonicalPath + File.separator).startsWith(destCanonical) &&
+                        target.canonicalPath != dest.canonicalPath
+                    ) throw SecurityException("压缩包含非法路径：${entry.name}")
+                    if (entry.isDirectory) {
+                        target.mkdirs()
+                    } else {
+                        target.parentFile?.mkdirs()
+                        FileOutputStream(target).use { fos -> totalBytes += zis.copyTo(fos) }
+                        count++
+                        if (count > ZIP_MAX_ENTRIES) throw IllegalStateException("条目过多（上限 $ZIP_MAX_ENTRIES）")
+                        if (totalBytes > ZIP_MAX_TOTAL_BYTES) throw IllegalStateException("解压内容过大（上限 2GB）")
+                    }
+                    zis.closeEntry()
+                    entry = zis.nextEntry
+                }
+            }
+            "已解压 $count 个文件 → ${dest.absolutePath}"
+        } catch (e: Exception) {
+            "解压失败：${e.message}"
+        }
     }
 }

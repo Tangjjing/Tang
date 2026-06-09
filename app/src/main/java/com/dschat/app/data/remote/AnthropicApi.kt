@@ -75,7 +75,8 @@ private data class AnthropicErr(val type: String? = null, val message: String? =
  */
 class AnthropicApi {
 
-    private val client = OkHttpClient.Builder()
+    // Derived from the shared base so the connection pool / dispatcher / thread pools are reused.
+    private val client = SharedHttp.base.newBuilder()
         .connectTimeout(30, TimeUnit.SECONDS)
         .writeTimeout(30, TimeUnit.SECONDS)
         .readTimeout(0, TimeUnit.MILLISECONDS)

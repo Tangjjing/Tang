@@ -1,0 +1,21 @@
+# Baseline profile (human-readable rules) merged into the release ART profile by AGP.
+# H = hot, S = startup, P = post-startup. `**` matches across packages; `*` within a segment.
+#
+# The Compose/AndroidX libraries ship their own baseline profiles inside their AARs, so we only need
+# to cover OUR code here. This broad catch-all marks every class/method in the app as startup+hot,
+# which is appropriate for an app this size — the whole UI + agent path is exercised right after launch.
+# profgen skips any rule it can't parse (it won't fail the build), so the explicit anchors below are a
+# belt-and-braces fallback for the most launch-critical classes.
+
+HSPLcom/dschat/app/**->**(**)**
+Lcom/dschat/app/**;
+
+# Launch-critical anchors (explicit, in case wildcard handling differs across AGP versions).
+Lcom/dschat/app/App;
+Lcom/dschat/app/MainActivity;
+Lcom/dschat/app/AppContainer;
+Lcom/dschat/app/data/settings/SettingsRepository;
+Lcom/dschat/app/ui/chat/ChatViewModel;
+Lcom/dschat/app/ui/chat/ChatUiState;
+Lcom/dschat/app/ui/components/MarkdownTextKt;
+Lcom/dschat/app/data/remote/SharedHttp;
