@@ -131,6 +131,44 @@ data class CompletionChoice(
     @SerialName("finish_reason") val finishReason: String? = null
 )
 
+// ---- Account balance / quota (provider-specific shapes) ----
+
+/** DeepSeek: GET /user/balance */
+@Serializable
+data class DeepSeekBalance(
+    @SerialName("is_available") val isAvailable: Boolean = false,
+    @SerialName("balance_infos") val balanceInfos: List<DeepSeekBalanceInfo> = emptyList()
+)
+
+@Serializable
+data class DeepSeekBalanceInfo(
+    val currency: String = "",
+    @SerialName("total_balance") val totalBalance: String = "",
+    @SerialName("granted_balance") val grantedBalance: String = "",
+    @SerialName("topped_up_balance") val toppedUpBalance: String = ""
+)
+
+/** Moonshot/Kimi: GET /users/me/balance */
+@Serializable
+data class MoonshotBalance(val data: MoonshotBalanceData? = null)
+
+@Serializable
+data class MoonshotBalanceData(
+    @SerialName("available_balance") val availableBalance: Double = 0.0,
+    @SerialName("voucher_balance") val voucherBalance: Double = 0.0,
+    @SerialName("cash_balance") val cashBalance: Double = 0.0
+)
+
+/** OpenRouter: GET /credits */
+@Serializable
+data class OpenRouterCredits(val data: OpenRouterCreditsData? = null)
+
+@Serializable
+data class OpenRouterCreditsData(
+    @SerialName("total_credits") val totalCredits: Double = 0.0,
+    @SerialName("total_usage") val totalUsage: Double = 0.0
+)
+
 @Serializable
 data class ApiErrorEnvelope(val error: ApiError? = null)
 

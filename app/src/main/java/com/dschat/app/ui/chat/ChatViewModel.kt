@@ -87,6 +87,8 @@ data class ChatUiState(
     val pendingImage: String? = null,
     val pendingFileName: String? = null,
     val pendingFileText: String? = null,
+    /** Local path of the attached file's raw copy, so conversion tools (pdf_to_word…) can act on it. */
+    val pendingFilePath: String? = null,
     val showApiKeyPrompt: Boolean = false
 )
 
@@ -177,8 +179,9 @@ class ChatViewModel(
     fun dismissApiKeyPrompt() = _uiState.update { it.copy(showApiKeyPrompt = false) }
     fun attachImage(dataUrl: String) = _uiState.update { it.copy(pendingImage = dataUrl) }
     fun clearPendingImage() = _uiState.update { it.copy(pendingImage = null) }
-    fun attachFile(name: String, text: String) = _uiState.update { it.copy(pendingFileName = name, pendingFileText = text) }
-    fun clearPendingFile() = _uiState.update { it.copy(pendingFileName = null, pendingFileText = null) }
+    fun attachFile(name: String, text: String, path: String? = null) =
+        _uiState.update { it.copy(pendingFileName = name, pendingFileText = text, pendingFilePath = path) }
+    fun clearPendingFile() = _uiState.update { it.copy(pendingFileName = null, pendingFileText = null, pendingFilePath = null) }
 
     /** Selects a model for the CURRENT conversation (and remembers it as the default for new ones). */
     fun selectModel(id: String) {
@@ -310,6 +313,7 @@ class ChatViewModel(
         val image = _uiState.value.pendingImage
         val fileText = _uiState.value.pendingFileText
         val fileName = _uiState.value.pendingFileName
+        val filePath = _uiState.value.pendingFilePath
         if ((text.isEmpty() && image == null && fileText == null) || isBusy()) return
         if (!settings.hasKeyFor(_uiState.value.currentModel.id)) {
             // Actionable prompt (→「去配置」) instead of a transient snackbar the user can't act on.
@@ -337,6 +341,7 @@ class ChatViewModel(
                     pendingImage = null,
                     pendingFileName = null,
                     pendingFileText = null,
+                    pendingFilePath = null,
                     isStreaming = true,
                     errorMessage = null
                 )
@@ -349,16 +354,26 @@ class ChatViewModel(
 
             // Fold any attachment (uploaded file text and/or local image OCR) into apiText so the
             // model receives it as plain text — works on all models, including text-only ones.
+            // For a non-vision model + image we ALSO persist the image to a real file and inject its
+            // path, so agent tools (e.g. image_to_pdf) can act on it ("把这张图转成PDF").
             val recognized = if (image != null && !model.vision) ImageTextExtractor.extract(image) else ""
-            if (fileText != null || recognized.isNotBlank() || (image != null && !model.vision)) {
+            val imagePath = if (image != null && !model.vision) persistAttachedImage(image) else null
+            if (fileText != null || recognized.isNotBlank() || imagePath != null || (image != null && !model.vision)) {
                 val apiText = buildString {
                     if (fileText != null) {
-                        append("【用户上传了文件：").append(fileName ?: "file").append("，以下是它的内容】\n").append(fileText).append("\n\n")
+                        append("【用户上传了文件：").append(fileName ?: "file")
+                        if (filePath != null) append("，已保存到本机：").append(filePath)
+                            .append("。若用户要求转换/导出（如 转PDF/转Word/转图片/合并/拆分），请用相应工具操作这个路径")
+                        append("，以下是它的文字内容】\n").append(fileText).append("\n\n")
+                    }
+                    if (imagePath != null) {
+                        append("【用户发来一张图片，已保存到本机：").append(imagePath)
+                        append("。若用户要求转成/导出/保存为 PDF 或其它处理，请用 image_to_pdf 等工具操作这个路径。】\n")
                     }
                     if (recognized.isNotBlank()) {
-                        append("【用户发来一张图片，以下是本机离线识别的内容】\n").append(recognized).append("\n\n")
+                        append("【图片的本机离线文字识别结果】\n").append(recognized).append("\n\n")
                     } else if (image != null && !model.vision) {
-                        append("（用户发来一张图片，但本机未能识别出可读内容，请让用户用文字补充。）\n\n")
+                        append("（图片未识别出可读文字；如需了解图片内容请让用户用文字补充，若只是要转 PDF 可直接用上面的路径。）\n\n")
                     }
                     if (text.isNotBlank()) append(text)
                 }
@@ -366,9 +381,12 @@ class ChatViewModel(
             }
 
             try {
-                // Vision model + image → multimodal; file/OCR'd attachments → streaming text (their
-                // content lives in apiText, which the agent loop wouldn't send).
-                val useAgent = image == null && fileText == null && settings.agentEnabled.value && registry.apiSchemas() != null
+                // Vision model + image → multimodal streaming (keeps true vision, no tools, as before).
+                // Otherwise (incl. non-vision image OR an attached file) → agent loop: the attachment is on
+                // disk + its path is in apiText, so conversion tools (image_to_pdf / pdf_to_word / …) can run.
+                // The file's text is also in apiText, so plain "总结这个文档" still works (model answers, no tool).
+                val visionImage = image != null && model.vision
+                val useAgent = !visionImage && settings.agentEnabled.value && registry.apiSchemas() != null
                 if (useAgent) runAgentLoop(conversationId, settings.agentModelId(model.id)) else runStream(conversationId, model.id)
                 // Post-turn auto-memory: only reached when the turn finished normally (a stop/cancel
                 // throws CancellationException above and skips this), so aborted turns aren't mined.
@@ -996,16 +1014,34 @@ class ChatViewModel(
         val list = mutableListOf<AgentMessage>()
         systemContent(agentMode = true, query = lastUserText)?.let { list += AgentMessage(role = Role.SYSTEM.apiValue, content = it) }
         _uiState.value.messages.forEach { m ->
-            if (m.isStreaming || m.error || m.transient || m.tools != null || m.content.isBlank()) return@forEach
+            if (m.isStreaming || m.error || m.transient || m.tools != null) return@forEach
+            // Prefer apiText (carries uploaded-file content + OCR text + the attached image's path),
+            // so an image-only user turn still reaches the agent instead of being dropped as blank.
+            val body = m.apiText?.takeIf { it.isNotBlank() } ?: m.content
+            if (body.isBlank()) return@forEach
             if (m.role == Role.USER || m.role == Role.ASSISTANT) {
                 list += AgentMessage(
                     role = m.role.apiValue,
-                    content = m.content,
+                    content = body,
                     reasoningContent = if (m.role == Role.ASSISTANT) m.reasoning else null
                 )
             }
         }
         return list
+    }
+
+    /** Decode the attached data-URL image to a real cache file so agent tools can read it by path.
+     *  Returns the absolute path, or null on failure. */
+    private fun persistAttachedImage(dataUrl: String): String? = try {
+        val b64 = dataUrl.substringAfter("base64,", dataUrl)
+        val bytes = android.util.Base64.decode(b64, android.util.Base64.DEFAULT)
+        val ext = if (dataUrl.contains("image/png")) "png" else "jpg"
+        val dir = java.io.File(appContext.cacheDir, "attach").apply { mkdirs() }
+        val f = java.io.File(dir, "img_${System.currentTimeMillis()}.$ext")
+        f.writeBytes(bytes)
+        f.absolutePath
+    } catch (e: Exception) {
+        null
     }
 
     private fun systemContent(agentMode: Boolean, query: String): String? {

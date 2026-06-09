@@ -9,8 +9,14 @@ import com.dschat.app.agent.tools.MakeCallTool
 import com.dschat.app.agent.tools.SendSmsTool
 import com.dschat.app.agent.tools.ContactsTool
 import com.dschat.app.agent.tools.DateTimeTool
+import com.dschat.app.agent.tools.ImageToPdfTool
 import com.dschat.app.agent.tools.DeleteFileTool
 import com.dschat.app.agent.tools.DeviceInfoTool
+import com.dschat.app.agent.tools.DocumentToPdfTool
+import com.dschat.app.agent.tools.MergePdfsTool
+import com.dschat.app.agent.tools.PdfToImagesTool
+import com.dschat.app.agent.tools.PdfToWordTool
+import com.dschat.app.agent.tools.SplitPdfTool
 import com.dschat.app.agent.tools.FetchUrlTool
 import com.dschat.app.agent.tools.FetchUrlsTool
 import com.dschat.app.agent.tools.FindAppTool
@@ -53,6 +59,9 @@ class ToolRegistry(context: Context, private val settings: SettingsRepository, p
         WebSearchTool(settings), FetchUrlTool(), FetchUrlsTool(), HttpRequestTool(), GetWeatherTool(app, settings),
         // files
         ReadFileTool(), WriteFileTool(), ListFilesTool(), DeleteFileTool(), FindFilesTool(),
+        // file conversion (offline, text-level for Office formats)
+        ImageToPdfTool(app), DocumentToPdfTool(app), PdfToWordTool(app),
+        PdfToImagesTool(app), MergePdfsTool(app), SplitPdfTool(app),
         // memory
         SaveMemoryTool(settings), ReadMemoryTool(settings), ForgetMemoryTool(settings),
         // utility

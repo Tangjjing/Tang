@@ -2,4 +2,6 @@
 <paths>
     <!-- Temp full-res photos from 拍照 live under cacheDir/camera/. -->
     <cache-path name="camera" path="camera/" />
+    <!-- image_to_pdf 把生成的 PDF 写到公共「下载」目录，分享时需经 FileProvider 暴露。 -->
+    <external-path name="downloads" path="Download/" />
 </paths>

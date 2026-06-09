@@ -41,7 +41,7 @@ object AppViewModelProvider {
             TasksViewModel(app().container.taskRepository)
         }
         initializer {
-            UsageViewModel(app().container.settings)
+            UsageViewModel(app().container.settings, app().container.chatRepository)
         }
         initializer {
             PcViewModel(app().container.settings, app().container.pcBridge)

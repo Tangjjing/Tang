@@ -62,6 +62,27 @@ data class UsageStat(
     val totalTokens: Long get() = promptTokens + completionTokens
 }
 
+/** Normalized API account balance/quota for one provider, shown on the 用量统计 page.
+ *  Different providers expose balance via different endpoints + shapes; the API layer maps each
+ *  into this common form. [supported]=false → that provider has no balance endpoint we can query. */
+data class BalanceResult(
+    val supported: Boolean,
+    /** Provider says the account is usable (DeepSeek's is_available); informational. */
+    val available: Boolean = true,
+    /** Headline remaining amount, pre-formatted with its currency symbol, e.g. "¥110.00" / "$6.50". */
+    val display: String = "",
+    /** Optional breakdown line, e.g. "充值 110.00 · 赠送 0.00". */
+    val detail: String = "",
+    /** Non-null → the query itself failed (network / auth / parse). */
+    val error: String? = null
+) {
+    companion object {
+        val UNSUPPORTED = BalanceResult(supported = false)
+        val NO_KEY = BalanceResult(supported = true, error = "未配置 API Key")
+        fun failed(msg: String) = BalanceResult(supported = true, error = msg)
+    }
+}
+
 /** A named memory entry. Enabled entries are auto-injected into every conversation. */
 @Serializable
 data class MemoryItem(

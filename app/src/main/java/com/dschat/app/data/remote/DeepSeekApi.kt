@@ -1,5 +1,6 @@
 package com.dschat.app.data.remote
 
+import com.dschat.app.domain.BalanceResult
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -191,6 +192,81 @@ class DeepSeekApi {
             json.decodeFromString(ModelsResponse.serializer(), body).data.map { it.id }
         }
     }
+
+    /**
+     * Queries the provider's account balance/quota. Endpoints + response shapes differ per provider,
+     * so we branch on [baseUrl] and normalize into [BalanceResult]. Returns UNSUPPORTED for providers
+     * without a known balance endpoint (智谱/通义/自定义…). Never throws — failures become a result.
+     */
+    suspend fun fetchBalance(apiKey: String, baseUrl: String): BalanceResult = withContext(Dispatchers.IO) {
+        if (apiKey.isBlank()) return@withContext BalanceResult.NO_KEY
+        val base = baseUrl.trimEnd('/')
+        val u = base.lowercase()
+        val endpoint = when {
+            u.contains("deepseek") -> "$base/user/balance"
+            u.contains("moonshot") -> "$base/users/me/balance"
+            u.contains("openrouter") -> "$base/credits"
+            else -> return@withContext BalanceResult.UNSUPPORTED
+        }
+        try {
+            val request = Request.Builder()
+                .url(endpoint)
+                .addHeader("Authorization", "Bearer $apiKey")
+                .get()
+                .build()
+            client.newCall(request).execute().use { resp ->
+                val body = resp.body?.string().orEmpty()
+                if (!resp.isSuccessful) {
+                    val parsed = try { json.decodeFromString(ApiErrorEnvelope.serializer(), body).error?.message } catch (_: Exception) { null }
+                    return@withContext BalanceResult.failed("HTTP ${resp.code}: ${parsed ?: body.take(120)}")
+                }
+                when {
+                    u.contains("deepseek") -> {
+                        val b = json.decodeFromString(DeepSeekBalance.serializer(), body)
+                        val info = b.balanceInfos.firstOrNull()
+                            ?: return@withContext BalanceResult.failed("无余额信息")
+                        BalanceResult(
+                            supported = true,
+                            available = b.isAvailable,
+                            display = sym(info.currency) + info.totalBalance,
+                            detail = "充值 ${info.toppedUpBalance} · 赠送 ${info.grantedBalance}（${info.currency}）"
+                        )
+                    }
+                    u.contains("moonshot") -> {
+                        val d = json.decodeFromString(MoonshotBalance.serializer(), body).data
+                            ?: return@withContext BalanceResult.failed("无余额信息")
+                        BalanceResult(
+                            supported = true,
+                            available = d.availableBalance > 0,
+                            display = "¥" + money(d.availableBalance),
+                            detail = "现金 ${money(d.cashBalance)} · 代金券 ${money(d.voucherBalance)}"
+                        )
+                    }
+                    else -> { // openrouter
+                        val d = json.decodeFromString(OpenRouterCredits.serializer(), body).data
+                            ?: return@withContext BalanceResult.failed("无余额信息")
+                        val remaining = d.totalCredits - d.totalUsage
+                        BalanceResult(
+                            supported = true,
+                            available = remaining > 0,
+                            display = "$" + money(remaining),
+                            detail = "总额度 ${money(d.totalCredits)} · 已用 ${money(d.totalUsage)}（USD）"
+                        )
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            BalanceResult.failed(e.message ?: "查询失败")
+        }
+    }
+
+    private fun sym(currency: String): String = when (currency.uppercase()) {
+        "CNY", "RMB" -> "¥"
+        "USD" -> "$"
+        else -> ""
+    }
+
+    private fun money(v: Double): String = String.format(java.util.Locale.US, "%.2f", v)
 
     /** Non-streaming chat completion with optional tools — used by the agent loop. */
     suspend fun chatCompletion(

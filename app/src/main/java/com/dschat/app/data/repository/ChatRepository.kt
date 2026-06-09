@@ -8,6 +8,7 @@ import com.dschat.app.data.remote.ApiMessage
 import com.dschat.app.data.remote.DeepSeekApi
 import com.dschat.app.data.remote.StreamEvent
 import com.dschat.app.data.settings.SettingsRepository
+import com.dschat.app.domain.BalanceResult
 import com.dschat.app.domain.Role
 import com.dschat.app.domain.providerFromBaseUrl
 import kotlinx.coroutines.flow.Flow
@@ -53,6 +54,15 @@ class ChatRepository(
     /** Fetches model ids using explicit creds — for adding a brand-new provider. */
     suspend fun listModelsWith(apiKey: String, baseUrl: String): List<String> =
         api.listModels(apiKey, baseUrl)
+
+    /** Queries the account balance for [provider], using the creds of one of its models that has a key. */
+    suspend fun fetchBalanceForProvider(provider: String): BalanceResult {
+        val m = settings.models.value.firstOrNull {
+            (it.provider.ifBlank { providerFromBaseUrl(it.baseUrl) } == provider) && !it.apiKey.isNullOrBlank()
+        } ?: return BalanceResult.NO_KEY
+        val (key, url) = settings.credsFor(m.id)
+        return api.fetchBalance(key, url)
+    }
 
     /** Non-streaming completion with tools — used by the agent loop. */
     suspend fun chatCompletion(

@@ -193,8 +193,11 @@ fun ChatScreen(
     val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
         if (uri != null) scope.launch {
             val res = withContext(Dispatchers.IO) { readTextFile(context, uri) }
-            if (res != null) viewModel.attachFile(res.first, res.second)
-            else snackbarHostState.showSnackbar("无法读取该文件（可能是图片/二进制等暂不支持的格式）")
+            if (res != null) {
+                // Copy the raw file to a cache path too, so conversion tools (pdf_to_word…) can act on it.
+                val path = withContext(Dispatchers.IO) { copyToCache(context, uri, res.first) }
+                viewModel.attachFile(res.first, res.second, path)
+            } else snackbarHostState.showSnackbar("无法读取该文件（可能是图片/二进制等暂不支持的格式）")
         }
     }
     // Voice input via the system speech recognizer (no RECORD_AUDIO needed — the recognizer app handles it).
@@ -375,15 +378,17 @@ fun ChatScreen(
                             key = { it.id },
                             contentType = { if (it.tools != null) "tools" else if (it.role == Role.USER) "user" else "ai" }
                         ) {
-                            Box(Modifier.animateItem()) {
-                                MessageBubble(
-                                    it,
-                                    onManageMemory = onOpenMemory,
-                                    onRegenerate = viewModel::regenerate,
-                                    onEdit = viewModel::editMessage,
-                                    onSpeak = { text -> tts.speak(text) }
-                                )
-                            }
+                            // NOTE: deliberately NO Modifier.animateItem() here — its placement animation
+                            // fights the per-token scrollToItem(…, Int.MAX_VALUE) auto-follow during
+                            // streaming and makes the whole list jitter/flicker. Entrance animation isn't
+                            // worth that. (The trailing ChoiceCard keeps animateItem — it appears once.)
+                            MessageBubble(
+                                it,
+                                onManageMemory = onOpenMemory,
+                                onRegenerate = viewModel::regenerate,
+                                onEdit = viewModel::editMessage,
+                                onSpeak = { text -> tts.speak(text) }
+                            )
                         }
                         // 内联选项卡片（ask_user）——挂在对话流末尾，模型问、用户点选即作答。
                         state.pendingChoice?.let { choice ->
@@ -1404,6 +1409,18 @@ private fun readTextFile(context: Context, uri: Uri): Pair<String, String>? = tr
         readPlainText(context, uri)                          // plain-text files
     }
     if (text.isNullOrBlank()) null else name to text.take(20000)
+} catch (e: Exception) {
+    null
+}
+
+/** Copy a picked document's raw bytes into cacheDir/attach/<name> so conversion tools can read it by
+ *  path (the chat only keeps extracted text otherwise). Returns the absolute path, or null on failure. */
+private fun copyToCache(context: Context, uri: Uri, name: String): String? = try {
+    val safe = name.replace(Regex("[\\\\/:*?\"<>|]"), "_").ifBlank { "file" }
+    val dir = File(context.cacheDir, "attach").apply { mkdirs() }
+    val out = File(dir, "doc_" + System.currentTimeMillis() + "_" + safe)
+    context.contentResolver.openInputStream(uri)?.use { ins -> out.outputStream().use { ins.copyTo(it) } }
+    if (out.length() > 0) out.absolutePath else null
 } catch (e: Exception) {
     null
 }
